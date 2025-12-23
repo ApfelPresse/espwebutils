@@ -9,50 +9,6 @@ that are immediately visible in the browser.
 
 ---
 
-## Features
-
-### WiFi & Provisioning
-- Automatic STA connection
-- Fallback Access Point (AP) mode
-- mDNS support (`<hostname>.local`)
-- Status endpoint (`/status`)
-- Reset device via Web UI
-
-### OTA Updates
-- OTA updates via `ArduinoOTA`
-- Time-limited OTA window (default: 10 minutes)
-- Password-protected OTA
-- Auto-generated OTA password (stored in NVS)
-- OTA configuration via Web UI
-- Fully compatible with PlatformIO OTA upload
-
-### Time Synchronization
-- Automatic NTP sync after WiFi connection
-- Timezone: **Berlin (CET / CEST)**
-- Unix epoch seconds or milliseconds
-- Safe fallback to `millis()` until time is valid
-
-### Live Graphs (WebSocket)
-- WebSocket endpoint: `/ws/graphs`
-- Simple API:
-  ```cpp
-  pushData(graph, label, x, y);
-  pushData(graph, label, y); // x = current time
-  ```
-- Ring buffer with **20 data points per series**
-- Initial history sent on page load
-- Real-time live updates
-- Fully dynamic web UI (graphs appear automatically)
-
-### Web UI
-- Materialize CSS
-- Modular pages
-- Graph dashboard (`/graphs`)
-- OTA / status / reset pages
-- HTML/CSS/JS compiled into gzip-compressed webfiles
-
----
-
 ## Minimal Example
 
 ```cpp
@@ -88,14 +44,6 @@ void loop()
 ```
 
 ---
-
-## Live Graphs – Firmware API
-
-```cpp
-pushData("Weather", "Temperature", 21.4);
-pushData("Weather", "Humidity", 55.0);
-pushData("System", "Heap", ESP.getFreeHeap());
-```
 
 ## OTA with PlatformIO
 
