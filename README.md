@@ -50,7 +50,7 @@ void loop()
 ```ini
 [env:esp32s3OTA]
 upload_protocol = espota
-upload_port = 192.168.2.210
+upload_port = meinesp.local
 upload_flags =
   -p 3232
   -a <OTA_PASSWORD>
