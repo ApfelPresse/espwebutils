@@ -1,0 +1,268 @@
+#pragma once
+#include "../test_helpers.h"
+#include "../../src/model/ModelSerializer.h"
+#include "../../src/model/ModelTypeStaticString.h"
+#include "../../src/model/ModelVar.h"
+#include <Preferences.h>
+
+namespace VarModesTest {
+
+// Test struct with different Var modes
+struct TestSettings {
+  static const int STR_LEN = 32;
+
+  // Value mode, Prefs on, Read-Write
+  fj::VarWsPrefsRw<StaticString<STR_LEN>> name;
+  
+  // Value mode, no Prefs, Read-Write
+  fj::VarWsRw<StaticString<STR_LEN>> tempValue;
+  
+  // Value mode, Prefs on, Read-Only
+  fj::VarWsPrefsRo<StaticString<STR_LEN>> deviceId;
+  
+  // Value mode, no Prefs, Read-Only
+  fj::VarWsRo<StaticString<STR_LEN>> statusCode;
+  
+  // Meta mode, Prefs on, Read-Write
+  fj::VarMetaPrefsRw<StaticString<STR_LEN>> password;
+  
+  // Meta mode, no Prefs, Read-Write
+  fj::VarMetaRw<StaticString<STR_LEN>> secretPin;
+
+  typedef fj::Schema<TestSettings,
+                     fj::Field<TestSettings, decltype(name)>,
+                     fj::Field<TestSettings, decltype(tempValue)>,
+                     fj::Field<TestSettings, decltype(deviceId)>,
+                     fj::Field<TestSettings, decltype(statusCode)>,
+                     fj::Field<TestSettings, decltype(password)>,
+                     fj::Field<TestSettings, decltype(secretPin)>>
+      SchemaType;
+
+  static const SchemaType& schema() {
+    static const SchemaType s = fj::makeSchema<TestSettings>(
+        fj::Field<TestSettings, decltype(name)>{"name", &TestSettings::name},
+        fj::Field<TestSettings, decltype(tempValue)>{"tempValue", &TestSettings::tempValue},
+        fj::Field<TestSettings, decltype(deviceId)>{"deviceId", &TestSettings::deviceId},
+        fj::Field<TestSettings, decltype(statusCode)>{"statusCode", &TestSettings::statusCode},
+        fj::Field<TestSettings, decltype(password)>{"password", &TestSettings::password},
+        fj::Field<TestSettings, decltype(secretPin)>{"secretPin", &TestSettings::secretPin});
+    return s;
+  }
+};
+
+void testVarWsPrefsRw() {
+  TEST_START("VarWsPrefsRw (Value+Prefs+RW)");
+  
+  fj::VarWsPrefsRw<StaticString<32>> var;
+  var = "TestValue";
+  
+  TEST_ASSERT(strcmp(var.c_str(), "TestValue") == 0, "Should store value");
+  
+  // Serialize for WebSocket (should include value)
+  StaticJsonDocument<256> doc;
+  JsonObject root = doc.to<JsonObject>();
+  root["value"] = var.c_str();
+  
+  String json;
+  serializeJson(root, json);
+  TEST_ASSERT(json.indexOf("TestValue") > 0, "WS should include value");
+  
+  // Serialize for Prefs (should include value)
+  StaticJsonDocument<256> docPrefs;
+  JsonObject rootPrefs = docPrefs.to<JsonObject>();
+  rootPrefs["value"] = var.c_str();
+  
+  String jsonPrefs;
+  serializeJson(rootPrefs, jsonPrefs);
+  TEST_ASSERT(jsonPrefs.indexOf("TestValue") > 0, "Prefs should include value");
+  
+  TEST_END();
+}
+
+void testVarWsRo() {
+  TEST_START("VarWsRo (Value+NoPrefs+RO)");
+  
+  TestSettings settings;
+  settings.statusCode = "200";
+  
+  TEST_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "Should store value");
+  
+  // Serialize for WebSocket (should include value)
+  StaticJsonDocument<512> doc;
+  JsonObject root = doc.to<JsonObject>();
+  fj::writeFields(settings, TestSettings::schema(), root);
+  
+  String json;
+  serializeJson(root, json);
+  Serial.println("VarWsRo WS: " + json);
+  TEST_ASSERT(json.indexOf("200") > 0, "WS should include value");
+  
+  // Try to deserialize (should be tolerated because using tolerant mode)
+  const char* updateJson = R"({"statusCode":"404"})";
+  StaticJsonDocument<256> updateDoc;
+  deserializeJson(updateDoc, updateJson);
+  
+  bool success = fj::readFieldsTolerant(settings, TestSettings::schema(), updateDoc.as<JsonObject>());
+  TEST_ASSERT(success, "Read-only field update should be tolerated in tolerant mode");
+  TEST_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "Value should not change (read-only)");
+  
+  TEST_END();
+}
+
+void testVarMetaPrefsRw() {
+  TEST_START("VarMetaPrefsRw (Meta+Prefs+RW)");
+  
+  TestSettings settings;
+  settings.password = "SecretPassword123";
+  
+  // Serialize for WebSocket (should NOT include value, only meta)
+  StaticJsonDocument<512> doc;
+  JsonObject root = doc.to<JsonObject>();
+  fj::writeFields(settings, TestSettings::schema(), root);
+  
+  String json;
+  serializeJson(root, json);
+  Serial.println("VarMetaPrefsRw WS: " + json);
+  
+  TEST_ASSERT(json.indexOf("SecretPassword123") == -1, "WS should NOT leak secret value");
+  TEST_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "WS should include meta type");
+  TEST_ASSERT(json.indexOf("\"initialized\"") > 0, "WS should include initialized flag");
+  
+  // Serialize for Prefs (should include value)
+  StaticJsonDocument<512> docPrefs;
+  JsonObject rootPrefs = docPrefs.to<JsonObject>();
+  fj::writeFieldsPrefs(settings, TestSettings::schema(), rootPrefs);
+  
+  String jsonPrefs;
+  serializeJson(rootPrefs, jsonPrefs);
+  Serial.println("VarMetaPrefsRw Prefs: " + jsonPrefs);
+  
+  TEST_ASSERT(jsonPrefs.indexOf("SecretPassword123") > 0, "Prefs SHOULD include secret value");
+  
+  TEST_END();
+}
+
+void testVarMetaRw() {
+  TEST_START("VarMetaRw (Meta+NoPrefs+RW)");
+  
+  TestSettings settings;
+  settings.secretPin = "1234";
+  
+  // Serialize for WebSocket (should only show meta)
+  StaticJsonDocument<512> doc;
+  JsonObject root = doc.to<JsonObject>();
+  fj::writeFields(settings, TestSettings::schema(), root);
+  
+  String json;
+  serializeJson(root, json);
+  Serial.println("VarMetaRw WS: " + json);
+  
+  TEST_ASSERT(json.indexOf("1234") == -1, "WS should NOT leak secret PIN");
+  TEST_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "WS should include meta type");
+  
+  // Serialize for Prefs (should NOT include, no persistence)
+  StaticJsonDocument<512> docPrefs;
+  JsonObject rootPrefs = docPrefs.to<JsonObject>();
+  fj::writeFieldsPrefs(settings, TestSettings::schema(), rootPrefs);
+  
+  String jsonPrefs;
+  serializeJson(rootPrefs, jsonPrefs);
+  Serial.println("VarMetaRw Prefs: " + jsonPrefs);
+  
+  TEST_ASSERT(jsonPrefs.indexOf("secretPin") == -1, "Prefs should NOT include non-persistent field");
+  
+  TEST_END();
+}
+
+void testPrefsFiltering() {
+  TEST_START("Prefs Filtering (PrefsMode)");
+  
+  TestSettings settings;
+  settings.name = "Device1";
+  settings.tempValue = "42";
+  settings.deviceId = "ESP32-ABC123";
+  settings.statusCode = "200";
+  settings.password = "MySecret";
+  settings.secretPin = "9999";
+  
+  // Serialize for Prefs
+  StaticJsonDocument<1024> doc;
+  JsonObject root = doc.to<JsonObject>();
+  fj::writeFieldsPrefs(settings, TestSettings::schema(), root);
+  
+  String json;
+  serializeJson(root, json);
+  Serial.println("Prefs JSON: " + json);
+  
+  // Check what's included
+  TEST_ASSERT(json.indexOf("Device1") > 0, "name (PrefsRw) should be in Prefs");
+  TEST_ASSERT(json.indexOf("tempValue") == -1, "tempValue (no Prefs) should NOT be in Prefs");
+  TEST_ASSERT(json.indexOf("ESP32-ABC123") > 0, "deviceId (PrefsRo) should be in Prefs");
+  TEST_ASSERT(json.indexOf("statusCode") == -1, "statusCode (no Prefs) should NOT be in Prefs");
+  TEST_ASSERT(json.indexOf("MySecret") > 0, "password (MetaPrefsRw) should be in Prefs");
+  TEST_ASSERT(json.indexOf("secretPin") == -1, "secretPin (MetaRw, no Prefs) should NOT be in Prefs");
+  
+  TEST_END();
+}
+
+void testReadOnlyRejection() {
+  TEST_START("Read-Only Write Rejection");
+  
+  TestSettings settings;
+  settings.deviceId = "Original-ID";
+  settings.statusCode = "200";
+  
+  // Try to update read-only fields
+  const char* updateJson = R"({
+    "deviceId": "Hacked-ID",
+    "statusCode": "404"
+  })";
+  
+  StaticJsonDocument<256> doc;
+  deserializeJson(doc, updateJson);
+  
+  bool success = fj::readFieldsStrict(settings, TestSettings::schema(), doc.as<JsonObject>());
+  
+  // In strict mode with read-only fields, updates should be tolerated (ignored)
+  TEST_ASSERT(strcmp(settings.deviceId.c_str(), "Original-ID") == 0, "deviceId should not change (read-only)");
+  TEST_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "statusCode should not change (read-only)");
+  
+  TEST_END();
+}
+
+void testVarOnChange() {
+  TEST_START("Var onChange Callback");
+  
+  int changeCount = 0;
+  fj::VarWsPrefsRw<int> var;
+  var.setOnChange([&changeCount]() { changeCount++; });
+  
+  TEST_ASSERT(changeCount == 0, "No changes yet");
+  
+  var.set(10);
+  TEST_ASSERT(changeCount == 1, "Should trigger on set()");
+  
+  var = 20;
+  TEST_ASSERT(changeCount == 2, "Should trigger on assignment");
+  
+  var += 5;
+  TEST_ASSERT(changeCount == 3, "Should trigger on +=");
+  
+  TEST_END();
+}
+
+void runAllTests() {
+  Serial.println("\n===== VAR MODES TESTS =====\n");
+  
+  testVarWsPrefsRw();
+  testVarWsRo();
+  testVarMetaPrefsRw();
+  testVarMetaRw();
+  testPrefsFiltering();
+  testReadOnlyRejection();
+  testVarOnChange();
+  
+  Serial.println("\n===== VAR MODES TESTS COMPLETE =====\n");
+}
+
+} // namespace VarModesTest
