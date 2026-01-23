@@ -4,7 +4,7 @@ import gzip
 import hashlib
 import re
 
-input_dir = env.GetProjectOption("custom_webfiles_input", "data/wifi") # type: ignore
+input_dir = env.GetProjectOption("custom_webfiles_input", "website") # type: ignore
 output_file = env.GetProjectOption("custom_webfiles_output", "src/webfiles.h") # type: ignore
 hash_algo = env.GetProjectOption("custom_webfiles_hash_algo", "sha256").lower() # type: ignore
 
