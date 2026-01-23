@@ -54,6 +54,7 @@ public:
         doc["x"] = x;
         doc["y"] = y;
 
+        Serial.println("[LiveGraph] Pushing data: graph=" + graph + " label=" + label + " x=" + String(x) + " y=" + String(y));
         String json;
         serializeJson(doc, json);
         _ws.textAll(json);

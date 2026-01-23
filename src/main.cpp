@@ -1,10 +1,20 @@
 #include "WiFiProvisioner.h"
+#include <nvs_flash.h>
+#include "Periodic.h"
+#include "Model.h"
 
 WiFiProvisioner wifi;
+
+// static Periodic metrics(5000);
 
 void setup()
 {
   Serial.begin(115200);
+  
+  delay(200);
+  Serial.println();
+  Serial.println("[DEBUG] Serial initialized (115200)");
+  Serial.printf("[DEBUG] millis=%lu\n", millis());
 
   wifi.setApSsid("ESP-Setup");
   wifi.setMdnsHost("meinesp");
@@ -21,9 +31,11 @@ void loop()
 {
   wifi.handleLoop();
 
-  graphs.pushData("Wetter", "Temperatur", (double)millis(), 21.5);
-  graphs.pushData("Wetter", "Luftfeuchte", (double)millis(), 55.0);
-  graphs.pushData("System", "Heap", (double)millis(), (double)ESP.getFreeHeap());
+  // if (metrics.ready()) {
+  //   wifi.pushData("Wetter", "Temperatur", 21.5);
+  //   wifi.pushData("Wetter", "Luftfeuchte", 55.0);
+  //   wifi.pushData("System", "Heap", (double)ESP.getFreeHeap());
+  // }
 
-  delay(50);
+  yield();
 }

@@ -2,7 +2,6 @@
 
 #include <ArduinoOTA.h>
 #include <WiFi.h>
-#include <Preferences.h>
 #include <functional>
 
 class OtaUpdate
