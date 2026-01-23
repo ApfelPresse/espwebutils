@@ -355,11 +355,11 @@ if (ota.getWindowSeconds() == 0) {
     }
 
     // Update model with available networks
-    model.wifi.available_networks.get().clear();
+    model.wifi.available_networks.clear();
     for (int i = 0; i < n && i < WifiSettings::MAX_NETWORKS; ++i) {
       StaticString<WifiSettings::SSID_LEN> ssid;
       ssid.set(WiFi.SSID(i).c_str());
-      model.wifi.available_networks.get().add(ssid);
+      model.wifi.available_networks.add(ssid);
     }
     // Trigger WebSocket update via model broadcast
     model.broadcastAll();

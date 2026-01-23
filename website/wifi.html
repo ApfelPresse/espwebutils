@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="de">
 
-
 <head>
   <meta charset="UTF-8">
   <title>WiFi Setup</title>
@@ -26,16 +25,48 @@
       text-align: center;
       margin-top: 2rem;
     }
+
+    .status-message {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 4px;
+      display: none;
+    }
+
+    .status-message.success {
+      background-color: #c8e6c9;
+      color: #2e7d32;
+      display: block;
+    }
+
+    .status-message.error {
+      background-color: #ffcdd2;
+      color: #c62828;
+      display: block;
+    }
+
+    .current-ssid {
+      background-color: #e3f2fd;
+      padding: 1rem;
+      border-radius: 4px;
+      margin-bottom: 1rem;
+    }
   </style>
 </head>
 
 <body>
+  <h4>📶 WLAN Konfiguration</h4>
 
-  <!-- Info Text (von /info) -->
-  <div id="infoBox"></div>
+  <!-- Currently connected WiFi -->
+  <div class="current-ssid" id="currentSsid" style="display: none;">
+    <p><strong>Aktuell verbunden:</strong> <span id="connectedSsid">-</span></p>
+  </div>
 
-  <h4>📶 WLAN auswählen</h4>
-  <p>Klicke auf ein Netzwerk, um dich zu verbinden.</p>
+  <!-- Status message -->
+  <div class="status-message" id="statusMessage"></div>
+
+  <!-- Available networks -->
+  <h5>Verfügbare Netzwerke</h5>
 
   <div id="loader">
     <div class="preloader-wrapper active">
@@ -51,18 +82,19 @@
         </div>
       </div>
     </div>
-    <p>Suche nach Netzwerken...</p>
+    <p>Netzwerke werden aktualisiert...</p>
   </div>
 
   <ul class="collection" id="wifiList"></ul>
 
+  <!-- Password modal -->
   <div id="passModal" class="modal">
     <div class="modal-content">
-      <h5 id="selectedSsid">WLAN Passwort</h5>
+      <h5>Passwort eingeben</h5>
+      <p>Netzwerk: <strong id="modalSsid">-</strong></p>
       <div class="input-field">
-        <input id="wifiPass" type="password">
+        <input id="wifiPass" type="password" autocomplete="off">
         <label for="wifiPass">Passwort</label>
-        <span id="prevStatus" class="red-text"></span>
       </div>
     </div>
     <div class="modal-footer">
@@ -72,117 +104,175 @@
   </div>
 
   <script src="/js/materialize.min.js"></script>
-
   <script>
-    let selectedSSID = '';
-    const wifiListElem = document.getElementById('wifiList');
-    const passModal = M.Modal.init(document.getElementById('passModal'));
-    const loader = document.getElementById('loader');
-
-    function showLoader(show) {
-      loader.style.display = show ? 'block' : 'none';
-    }
-
-    function saveStatus(ssid, status) {
-      localStorage.setItem('wifi_status_' + ssid, status);
-    }
-
-    function getStatus(ssid) {
-      return localStorage.getItem('wifi_status_' + ssid);
-    }
-
-    function clearStatus(ssid) {
-      localStorage.removeItem('wifi_status_' + ssid);
-    }
-
-    function loadInfoText() {
-      fetch('/info')
-        .then(r => r.text())
-        .then(html => {
-          document.getElementById("infoBox").innerHTML = html;
-        })
-        .catch(err => {
-          console.warn("[INFO] Beschreibung konnte nicht geladen werden.", err);
-        });
-    }
-
-    function loadWiFiList(retry = 0) {
-      showLoader(true);
-
-      fetch('/scan')
-        .then(r => r.json())
-        .then(networks => {
-          if (!networks || networks.length === 0) {
-            if (retry < 5) {
-              console.log(`[Scan] Noch keine Netzwerke, versuche erneut... (${retry + 1})`);
-              setTimeout(() => loadWiFiList(retry + 1), 1500);
-            } else {
-              console.warn("[Scan] Keine Netzwerke gefunden.");
-              showLoader(false);
-            }
-            return;
-          }
-
-          showLoader(false);
-          wifiListElem.innerHTML = '';
-
-          networks.sort((a, b) => b.rssi - a.rssi);
-
-          networks.forEach(net => {
-            const li = document.createElement('li');
-            li.className = 'collection-item wifi-item';
-            li.innerHTML = `
-              <span><strong>${net.ssid}</strong><br>
-              <small>BSSID: ${net.bssid || '—'} | RSSI: ${net.rssi} dBm</small>
-              </span>
-              <i class="material-icons wifi-strength">wifi</i>
-            `;
-            li.onclick = () => {
-              selectedSSID = net.ssid;
-              document.getElementById('selectedSsid').textContent = `Passwort für "${net.ssid}"`;
-              document.getElementById('wifiPass').value = '';
-              M.updateTextFields();
-
-              const status = getStatus(net.ssid);
-              const statusElem = document.getElementById('prevStatus');
-              statusElem.textContent = status || '';
-              passModal.open();
-            };
-            wifiListElem.appendChild(li);
-          });
-        })
-        .catch(err => {
-          console.error("Scan fehlgeschlagen:", err);
-          showLoader(false);
-        });
-    }
-
-    document.getElementById('submitWifi').onclick = () => {
-      const pass = document.getElementById('wifiPass').value;
-
-      fetch('/save', {
-        method: 'POST',
-        body: JSON.stringify({ ssid: selectedSSID, pass: pass }),
-        headers: { 'Content-Type': 'application/json' }
-      }).then(res => {
-        if (res.ok) {
-          clearStatus(selectedSSID); // Erfolg = Status löschen
-          M.toast({ html: 'Verbindungsversuch gestartet', classes: 'green' });
-        } else {
-          saveStatus(selectedSSID, 'Fehler beim Senden.');
-          M.toast({ html: 'Fehler beim Senden', classes: 'red' });
-        }
-        passModal.close();
-      }).catch(err => {
-        saveStatus(selectedSSID, 'Netzwerkfehler');
-        M.toast({ html: 'Netzwerkfehler', classes: 'red' });
-        passModal.close();
-      });
+    // ========== WebSocket Communication ==========
+    let ws = null;
+    let modelData = {
+      wifi: {
+        ssid: "",
+        pass: "",
+        available_networks: []
+      }
     };
 
-    document.addEventListener('DOMContentLoaded', function () {
-      loadInfoText();
-      loadWiFiList();
+    function connectWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        console.log("[WS] Connected");
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          console.log("[WS] Received:", msg);
+          
+          if (msg.topic === 'wifi') {
+            updateWifiModel(msg.data);
+          }
+        } catch (e) {
+          console.error("[WS] Parse error:", e);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error("[WS] Error:", error);
+        showError("WebSocket-Fehler: Verbindung zum Gerät verloren");
+      };
+      
+      ws.onclose = () => {
+        console.log("[WS] Disconnected, reconnecting in 3 seconds...");
+        setTimeout(connectWebSocket, 3000);
+      };
+    }
+
+    function updateWifiModel(data) {
+      console.log("[Model] WiFi update:", data);
+      
+      if (data.ssid !== undefined) {
+        modelData.wifi.ssid = data.ssid.value || "";
+      }
+      
+      if (data.pass !== undefined) {
+        // Don't store password locally for security
+        modelData.wifi.pass = "";
+      }
+      
+      if (data.available_networks !== undefined) {
+        const networks = data.available_networks;
+        if (networks.items && Array.isArray(networks.items)) {
+          modelData.wifi.available_networks = networks.items;
+          renderWifiList();
+        }
+      }
+      
+      updateCurrentSsid();
+    }
+
+    function sendWifiUpdate(ssid, password) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showError("Nicht mit WebSocket verbunden");
+        return;
+      }
+
+      const update = {
+        wifi: {
+          ssid: ssid,
+          pass: password
+        }
+      };
+
+      console.log("[WS] Sending WiFi update:", update);
+      ws.send(JSON.stringify(update));
+      
+      showSuccess("Verbindungsversuch gestartet...");
+    }
+
+    // ========== UI Functions ==========
+    function renderWifiList() {
+      const list = document.getElementById('wifiList');
+      list.innerHTML = '';
+      
+      if (!modelData.wifi.available_networks || modelData.wifi.available_networks.length === 0) {
+        list.innerHTML = '<li class="collection-item">Keine Netzwerke gefunden</li>';
+        return;
+      }
+
+      modelData.wifi.available_networks.forEach(ssid => {
+        const li = document.createElement('li');
+        li.className = 'collection-item wifi-item';
+        li.innerHTML = `
+          <span><strong>${ssid}</strong></span>
+          <i class="material-icons wifi-strength">wifi</i>
+        `;
+        li.onclick = () => {
+          document.getElementById('modalSsid').textContent = ssid;
+          document.getElementById('wifiPass').value = '';
+          M.updateTextFields();
+          passModal.open();
+        };
+        list.appendChild(li);
+      });
+
+      document.getElementById('loader').style.display = 'none';
+    }
+
+    function updateCurrentSsid() {
+      const ssidDisplay = document.getElementById('currentSsid');
+      const connectedSsidSpan = document.getElementById('connectedSsid');
+      
+      if (modelData.wifi.ssid && modelData.wifi.ssid.trim()) {
+        connectedSsidSpan.textContent = modelData.wifi.ssid;
+        ssidDisplay.style.display = 'block';
+      } else {
+        ssidDisplay.style.display = 'none';
+      }
+    }
+
+    function showSuccess(msg) {
+      const statusDiv = document.getElementById('statusMessage');
+      statusDiv.textContent = msg;
+      statusDiv.className = 'status-message success';
+      setTimeout(() => {
+        statusDiv.style.display = 'none';
+      }, 5000);
+    }
+
+    function showError(msg) {
+      const statusDiv = document.getElementById('statusMessage');
+      statusDiv.textContent = msg;
+      statusDiv.className = 'status-message error';
+    }
+
+    // ========== Init ==========
+    document.addEventListener('DOMContentLoaded', () => {
+      // Initialize modal
+      const passModal = M.Modal.init(document.getElementById('passModal'));
+      
+      // Connect WebSocket
+      connectWebSocket();
+      
+      // Submit button handler
+      document.getElementById('submitWifi').onclick = (e) => {
+        e.preventDefault();
+        
+        const ssid = document.getElementById('modalSsid').textContent;
+        const pass = document.getElementById('wifiPass').value;
+        
+        if (!ssid || !pass) {
+          showError("Bitte SSID und Passwort eingeben");
+          return;
+        }
+        
+        sendWifiUpdate(ssid, pass);
+        passModal.close();
+      };
+      
+      // Show loader initially
+      document.getElementById('loader').style.display = 'block';
     });
   </script>
 </body>

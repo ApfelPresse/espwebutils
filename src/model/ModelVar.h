@@ -438,7 +438,7 @@ inline bool readOne(ObjT& obj, const Field<ObjT, Var<T, WS, PREFS, WRITE>>& f, J
     }
     LOG_TRACE_F("  -> Assigning string: '%s'", s);
     dst = s;  // Use assignment operator
-    LOG_TRACE_F("  -> Value after assignment: '%s'", dst.get().c_str());
+    LOG_TRACE("  -> Value assigned");
     return true;
   }
   
@@ -446,7 +446,6 @@ inline bool readOne(ObjT& obj, const Field<ObjT, Var<T, WS, PREFS, WRITE>>& f, J
   bool result = detail::read_value_from_variant(dst.get(), v);
   
   LOG_TRACE_F("  -> Result: %s", result ? "true" : "false");
-  LOG_TRACE_F("  -> Value after: '%s'", dst.get().c_str());
   return result;
 }
 

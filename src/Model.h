@@ -21,21 +21,20 @@ struct WifiSettings
   // Variant A: WS meta only (never leak), Prefs: on, writable: on
   fj::VarMetaPrefsRw<StaticString<PASS_LEN>> pass;
 
-  // Available networks (WS: value, Prefs: off, writable: off = read-only)
-  fj::VarWsRo<List<StaticString<SSID_LEN>, MAX_NETWORKS>> available_networks;
+  // Available networks (direct List, not in Var)
+  // Managed programmatically, not persisted or user-writable
+  List<StaticString<SSID_LEN>, MAX_NETWORKS> available_networks;
 
   typedef fj::Schema<WifiSettings,
                      fj::Field<WifiSettings, decltype(ssid)>,
-                     fj::Field<WifiSettings, decltype(pass)>,
-                     fj::Field<WifiSettings, decltype(available_networks)>>
+                     fj::Field<WifiSettings, decltype(pass)>>
       SchemaType;
 
   static const SchemaType &schema()
   {
     static const SchemaType s = fj::makeSchema<WifiSettings>(
         fj::Field<WifiSettings, decltype(ssid)>{"ssid", &WifiSettings::ssid},
-        fj::Field<WifiSettings, decltype(pass)>{"pass", &WifiSettings::pass},
-        fj::Field<WifiSettings, decltype(available_networks)>{"available_networks", &WifiSettings::available_networks});
+        fj::Field<WifiSettings, decltype(pass)>{"pass", &WifiSettings::pass});
     return s;
   }
 

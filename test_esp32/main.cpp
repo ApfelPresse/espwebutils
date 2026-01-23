@@ -6,6 +6,7 @@
 #include "model_type_test/test_list.h"
 #include "model_type_test/test_var_modes.h"
 #include "model_type_test/test_serializer.h"
+#include "model_type_test/test_wifi_integration.h"
 
 void clearAllPreferences() {
   Serial.println("[CLEANUP] Clearing all NVS partitions...");
@@ -52,6 +53,14 @@ void setup() {
   ModelTypeTest::runAllTests();
   ListTest::runAllTests();
   VarModesTest::runAllTests();
+  // WiFi integration tests  
+  WiFiIntegrationTest::simulateWiFiScan();
+  WiFiIntegrationTest::testWiFiSettingsPersistence();
+  WiFiIntegrationTest::testWiFiWebSocketSerialization();
+  WiFiIntegrationTest::testWiFiSettingsUpdate();
+  WiFiIntegrationTest::testAvailableNetworksReadOnly();
+  WiFiIntegrationTest::testAvailableNetworksSerialization();
+  WiFiIntegrationTest::testWiFiModelIntegration();
 
   // Clear all preferences after tests
   Serial.println("\n[CLEANUP] Final cleanup...");
