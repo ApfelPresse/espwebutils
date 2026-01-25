@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test - ESP32 Model Communication</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/materialize.min.css">
+    <style>
+        body {
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background-color: #4caf50;
+            color: white;
+        }
+        .status.disconnected {
+            background-color: #f44336;
+            color: white;
+        }
+        .status.connecting {
+            background-color: #ff9800;
+            color: white;
+        }
+        #console {
+            background-color: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        .console-line {
+            margin: 2px 0;
+        }
+        .console-time {
+            color: #888;
+        }
+        .console-sent {
+            color: #00ff00;
+        }
+        .console-received {
+            color: #87ceeb;
+        }
+        .console-error {
+            color: #ff6b6b;
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        button {
+            margin: 0;
+        }
+        .json-display {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Test - ESP32 Model Communication</h1>
+
+        <div id="status" class="status connecting">
+            Status: Verbindung wird aufgebaut...
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <span class="card-title">WebSocket Console</span>
+                <div id="console"></div>
+                <button class="btn waves-effect waves-light" onclick="clearConsole()">
+                    Console löschen
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <span class="card-title">WiFi Settings Tests</span>
+                
+                <div class="button-group">
+                    <button class="btn waves-effect waves-light blue" onclick="testGetWiFiSettings()">
+                        WiFi Settings abrufen
+                    </button>
+                    <button class="btn waves-effect waves-light green" onclick="testUpdateSSID()">
+                        SSID ändern (Test)
+                    </button>
+                    <button class="btn waves-effect waves-light green" onclick="testUpdatePassword()">
+                        Passwort ändern (Test)
+                    </button>
+                    <button class="btn waves-effect waves-light orange" onclick="testScanNetworks()">
+                        Netzwerk Scan
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <span class="card-title">Custom Message</span>
+                
+                <div class="input-group">
+                    <label>Nachricht (JSON):</label>
+                    <textarea id="messageInput" class="materialize-textarea" style="height: 100px;">{"wifi": {"ssid": "TestNetwork"}}</textarea>
+                </div>
+                
+                <button class="btn waves-effect waves-light purple" onclick="sendCustomMessage()">
+                    Nachricht senden
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <span class="card-title">Letzte empfangene Nachricht</span>
+                <div id="lastMessage" class="json-display">Warte auf Nachricht...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messageCount = 0;
+
+        function log(message, type = 'info') {
+            const console = document.getElementById('console');
+            const now = new Date().toLocaleTimeString('de-DE');
+            
+            let className = 'console-line';
+            if (type === 'sent') className += ' console-sent';
+            else if (type === 'received') className += ' console-received';
+            else if (type === 'error') className += ' console-error';
+            
+            const line = document.createElement('div');
+            line.className = className;
+            line.innerHTML = `<span class="console-time">[${now}]</span> ${escapeHtml(message)}`;
+            console.appendChild(line);
+            console.scrollTop = console.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function updateStatus(status, className) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status ' + className;
+            statusDiv.textContent = 'Status: ' + status;
+        }
+
+        function clearConsole() {
+            document.getElementById('console').innerHTML = '';
+            messageCount = 0;
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            log(`Verbinde zu: ${wsUrl}`, 'info');
+            updateStatus('Verbindung wird aufgebaut...', 'connecting');
+
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = function(event) {
+                    log('✓ WebSocket verbunden!', 'received');
+                    updateStatus('Verbunden', 'connected');
+                    
+                    // Abonniere alle Topics
+                    log('Abonniere WiFi Topic...', 'sent');
+                    sendMessage({ topic: 'wifi', action: 'subscribe' });
+                };
+
+                ws.onmessage = function(event) {
+                    const timestamp = new Date().toLocaleTimeString('de-DE');
+                    log(`[RX] ${event.data}`, 'received');
+                    
+                    try {
+                        const data = JSON.parse(event.data);
+                        document.getElementById('lastMessage').textContent = JSON.stringify(data, null, 2);
+                    } catch (e) {
+                        document.getElementById('lastMessage').textContent = event.data;
+                    }
+                    messageCount++;
+                };
+
+                ws.onerror = function(error) {
+                    log(`✗ WebSocket Fehler: ${error}`, 'error');
+                    updateStatus('Fehler', 'disconnected');
+                };
+
+                ws.onclose = function(event) {
+                    log(`✗ Verbindung getrennt (Code: ${event.code})`, 'error');
+                    updateStatus('Getrennt', 'disconnected');
+                    
+                    // Versuche nach 3 Sekunden erneut zu verbinden
+                    setTimeout(() => {
+                        log('Versuche zu reconnecten...', 'info');
+                        connectWebSocket();
+                    }, 3000);
+                };
+            } catch (e) {
+                log(`✗ Fehler beim Erstellen WebSocket: ${e}`, 'error');
+                updateStatus('Fehler', 'disconnected');
+            }
+        }
+
+        function sendMessage(obj) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('✗ WebSocket nicht verbunden!', 'error');
+                return false;
+            }
+
+            const json = JSON.stringify(obj);
+            log(`[TX] ${json}`, 'sent');
+            ws.send(json);
+            return true;
+        }
+
+        function testGetWiFiSettings() {
+            log('--- Test: WiFi Settings abrufen ---', 'info');
+            sendMessage({ wifi: {} });
+        }
+
+        function testUpdateSSID() {
+            log('--- Test: SSID ändern ---', 'info');
+            const newSSID = prompt('Neue SSID eingeben:', 'TestNetwork123');
+            if (newSSID) {
+                sendMessage({ wifi: { ssid: newSSID } });
+            }
+        }
+
+        function testUpdatePassword() {
+            log('--- Test: Passwort ändern ---', 'info');
+            const newPass = prompt('Neues Passwort eingeben:', 'TestPassword123');
+            if (newPass) {
+                sendMessage({ wifi: { pass: newPass } });
+            }
+        }
+
+        function testScanNetworks() {
+            log('--- Test: WiFi Scan starten ---', 'info');
+            sendMessage({ action: 'wifi_scan' });
+        }
+
+        function sendCustomMessage() {
+            const input = document.getElementById('messageInput').value.trim();
+            if (!input) {
+                log('✗ Bitte geben Sie eine gültige JSON Nachricht ein', 'error');
+                return;
+            }
+
+            try {
+                const obj = JSON.parse(input);
+                log('--- Custom Nachricht senden ---', 'info');
+                sendMessage(obj);
+            } catch (e) {
+                log(`✗ Ungültiges JSON: ${e.message}`, 'error');
+            }
+        }
+
+        // Verbinde beim Laden
+        window.addEventListener('load', function() {
+            connectWebSocket();
+        });
+
+        // Cleanup beim Verlassen
+        window.addEventListener('beforeunload', function() {
+            if (ws) {
+                ws.close();
+            }
+        });
+    </script>
+</body>
+</html>

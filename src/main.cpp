@@ -2,6 +2,7 @@
 #include <nvs_flash.h>
 #include "Periodic.h"
 #include "Model.h"
+#include "Logger.h"
 
 WiFiProvisioner wifi;
 
@@ -15,6 +16,10 @@ void setup()
   Serial.println();
   Serial.println("[DEBUG] Serial initialized (115200)");
   Serial.printf("[DEBUG] millis=%lu\n", millis());
+
+  // Set log level to TRACE globally BEFORE wifi.begin()
+  Logger::setLevel(LogLevel::TRACE);
+  Serial.println("[DEBUG] Log level set to TRACE");
 
   wifi.setApSsid("ESP-Setup");
   wifi.setMdnsHost("meinesp");

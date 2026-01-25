@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>WebSocket Debug</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 2rem;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+    }
+    .status {
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .status.connecting {
+      background: #fff3cd;
+      color: #856404;
+    }
+    .status.connected {
+      background: #d4edda;
+      color: #155724;
+    }
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .log {
+      background: #000;
+      color: #0f0;
+      padding: 1rem;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+      margin: 1rem 0;
+    }
+    .log-entry {
+      margin: 4px 0;
+    }
+    .log-entry.info { color: #0f0; }
+    .log-entry.error { color: #f00; }
+    .log-entry.data { color: #0ff; }
+    button {
+      background: #007bff;
+      color: white;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 0.5rem 0.5rem 0.5rem 0;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .wifi-list {
+      margin-top: 1rem;
+    }
+    .wifi-item {
+      background: #f9f9f9;
+      padding: 0.5rem;
+      margin: 0.25rem 0;
+      border-left: 3px solid #007bff;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔧 WebSocket Debug</h1>
+    
+    <div id="status" class="status connecting">Verbinde zu WebSocket...</div>
+    
+    <div>
+      <button onclick="sendTest()">Test senden</button>
+      <button onclick="requestWifiScan()">WiFi Scan anfordern</button>
+      <button onclick="clearLog()">Log löschen</button>
+    </div>
+    
+    <div class="log" id="log"></div>
+    
+    <div id="wifiList" class="wifi-list"></div>
+  </div>
+
+  <script>
+    let ws = null;
+    let modelData = {
+      wifi: {
+        ssid: "",
+        pass: "",
+        available_networks: []
+      }
+    };
+
+    function log(msg, type = 'info') {
+      const logEl = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      
+      const timestamp = new Date().toLocaleTimeString();
+      entry.textContent = `[${timestamp}] ${msg}`;
+      
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+      
+      console.log(`[${type.toUpperCase()}] ${msg}`);
+    }
+
+    function clearLog() {
+      document.getElementById('log').innerHTML = '';
+      log('Log gelöscht');
+    }
+
+    function updateStatus(msg, status = 'connecting') {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = msg;
+      statusEl.className = `status ${status}`;
+    }
+
+    function initWebSocket() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      let host = window.location.host;
+      
+      // Fallback: Wenn Host verdächtig aussieht (z.B. 8.8.8.8), verwende localhost
+      if (host.includes('8.8.8.8') || host.includes('1.1.1.1')) {
+        host = 'localhost';
+      }
+      
+      const wsUrl = `${protocol}//${host}/ws`;
+      log(`Verbinde zu: ${wsUrl}`);
+      
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = function(event) {
+        log('✓ WebSocket verbunden!', 'info');
+        updateStatus('✓ WebSocket verbunden!', 'connected');
+        
+        // Request initial data
+        ws.send(JSON.stringify({
+          wifi: { ssid: "", pass: "" }
+        }));
+        
+        // Request WiFi scan
+        setTimeout(requestWifiScan, 1000);
+      };
+      
+      ws.onmessage = function(event) {
+        log(`Empfangen: ${event.data}`, 'data');
+        
+        try {
+          const msg = JSON.parse(event.data);
+          
+          if (msg.topic === 'wifi') {
+            log(`WiFi Daten empfangen:`, 'info');
+            if (msg.data) {
+              if (msg.data.ssid) {
+                modelData.wifi.ssid = msg.data.ssid;
+                log(`  SSID: ${msg.data.ssid}`, 'data');
+              }
+              if (msg.data.pass) {
+                modelData.wifi.pass = msg.data.pass;
+                log(`  Pass: ****`, 'data');
+              }
+              if (msg.data.available_networks) {
+                const nets = msg.data.available_networks;
+                if (nets.items) {
+                  modelData.wifi.available_networks = nets.items;
+                  log(`  ${nets.items.length} Netzwerke verfügbar`, 'data');
+                  displayWifiNetworks(nets.items);
+                }
+              }
+            }
+          }
+        } catch(e) {
+          log(`Fehler beim Parsen: ${e.message}`, 'error');
+        }
+      };
+      
+      ws.onerror = function(event) {
+        log(`✗ WebSocket Fehler: ${event}`, 'error');
+        updateStatus('✗ WebSocket Fehler', 'error');
+      };
+      
+      ws.onclose = function(event) {
+        log(`WebSocket geschlossen (Code: ${event.code})`, 'error');
+        updateStatus('✗ Verbindung getrennt', 'error');
+        
+        // Versuche neu zu verbinden
+        setTimeout(() => {
+          log('Versuche neu zu verbinden...', 'info');
+          initWebSocket();
+        }, 3000);
+      };
+    }
+
+    function sendTest() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log('WebSocket nicht verbunden!', 'error');
+        return;
+      }
+      
+      const testMsg = { test: "hello", timestamp: new Date().toISOString() };
+      ws.send(JSON.stringify(testMsg));
+      log(`Test gesendet: ${JSON.stringify(testMsg)}`, 'info');
+    }
+
+    function requestWifiScan() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        log('WebSocket nicht verbunden!', 'error');
+        return;
+      }
+      
+      // Sende WiFi-Update request (triggert Scan)
+      const msg = {
+        wifi: {
+          ssid: "",
+          pass: ""
+        }
+      };
+      ws.send(JSON.stringify(msg));
+      log('WiFi Scan angefordert', 'info');
+    }
+
+    function displayWifiNetworks(networks) {
+      const container = document.getElementById('wifiList');
+      container.innerHTML = '<h3>Verfügbare Netzwerke:</h3>';
+      
+      if (!networks || networks.length === 0) {
+        container.innerHTML += '<p>Keine Netzwerke gefunden</p>';
+        return;
+      }
+      
+      networks.forEach(net => {
+        const item = document.createElement('div');
+        item.className = 'wifi-item';
+        item.textContent = net;
+        container.appendChild(item);
+      });
+    }
+
+    // Starte beim Laden
+    window.addEventListener('DOMContentLoaded', function() {
+      log('Seite geladen', 'info');
+      log('Initialisiere WebSocket...', 'info');
+      
+      // Zeige Umgebungsinformationen
+      log(`Browser: ${navigator.userAgent.substring(0, 50)}...`, 'info');
+      log(`Host: ${window.location.host}`, 'info');
+      log(`Protokoll: ${window.location.protocol}`, 'info');
+      
+      initWebSocket();
+    });
+  </script>
+</body>
+</html>

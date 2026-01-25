@@ -2,7 +2,7 @@
 #include "../test_helpers.h"
 #include "../../src/model/ModelSerializer.h"
 #include "../../src/model/ModelTypeList.h"
-#include "../../src/model/ModelTypeStaticString.h"
+#include "../../src/model/ModelTypePrimitive.h"
 #include "../../src/model/ModelVar.h"
 #include <Preferences.h>
 
@@ -67,11 +67,11 @@ void testListIterator() {
 }
 
 void testListWithStaticString() {
-  TEST_START("List with StaticString");
+  TEST_START("List with String<N>");
   
-  List<StaticString<20>, 3> list;
+  List<StringBuffer<20>, 3> list;
   
-  StaticString<20> str1, str2, str3;
+  StringBuffer<20> str1, str2, str3;
   str1.set("Alpha");
   str2.set("Beta");
   str3.set("Gamma");
@@ -91,8 +91,8 @@ void testListWithStaticString() {
 void testListSerialization() {
   TEST_START("List JSON Serialization");
   
-  List<StaticString<32>, 5> list;
-  StaticString<32> s1, s2, s3;
+  List<StringBuffer<32>, 5> list;
+  StringBuffer<32> s1, s2, s3;
   s1.set("Network1");
   s2.set("Network2");
   s3.set("Network3");
@@ -104,7 +104,7 @@ void testListSerialization() {
   // Serialize to JSON
   StaticJsonDocument<512> doc;
   JsonObject root = doc.to<JsonObject>();
-  fj::TypeAdapter<List<StaticString<32>, 5>>::write_ws(list, root);
+  fj::TypeAdapter<List<StringBuffer<32>, 5>>::write_ws(list, root);
   
   String json;
   serializeJson(root, json);
@@ -133,8 +133,8 @@ void testListDeserialization() {
   deserializeJson(doc, jsonStr);
   JsonObject root = doc.as<JsonObject>();
   
-  List<StaticString<32>, 10> list;
-  bool success = fj::TypeAdapter<List<StaticString<32>, 10>>::read(list, root, false);
+  List<StringBuffer<32>, 10> list;
+  bool success = fj::TypeAdapter<List<StringBuffer<32>, 10>>::read(list, root, false);
   
   TEST_ASSERT(success, "Deserialization should succeed");
   TEST_ASSERT(list.size() == 3, "Should have 3 items");
@@ -148,10 +148,10 @@ void testListDeserialization() {
 void testListInVar() {
   TEST_START("List in Var<> wrapper");
   
-  fj::VarWsRo<List<StaticString<32>, 5>> availableNetworks;
+  fj::VarWsRo<List<StringBuffer<32>, 5>> availableNetworks;
   
   // Add networks
-  StaticString<32> net1, net2;
+  StringBuffer<32> net1, net2;
   net1.set("Home-WiFi");
   net2.set("Office-WiFi");
   
@@ -166,7 +166,7 @@ void testListInVar() {
   
   // Simulate field serialization
   JsonObject nested = root.createNestedObject("available_networks");
-  fj::TypeAdapter<List<StaticString<32>, 5>>::write_ws(availableNetworks.get(), nested);
+  fj::TypeAdapter<List<StringBuffer<32>, 5>>::write_ws(availableNetworks.get(), nested);
   
   String json;
   serializeJson(root, json);

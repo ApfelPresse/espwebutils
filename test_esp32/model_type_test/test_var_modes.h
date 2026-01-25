@@ -1,7 +1,7 @@
 #pragma once
 #include "../test_helpers.h"
 #include "../../src/model/ModelSerializer.h"
-#include "../../src/model/ModelTypeStaticString.h"
+#include "../../src/model/ModelTypePrimitive.h"
 #include "../../src/model/ModelVar.h"
 #include <Preferences.h>
 
@@ -12,22 +12,22 @@ struct TestSettings {
   static const int STR_LEN = 32;
 
   // Value mode, Prefs on, Read-Write
-  fj::VarWsPrefsRw<StaticString<STR_LEN>> name;
+  fj::VarWsPrefsRw<StringBuffer<STR_LEN>> name;
   
   // Value mode, no Prefs, Read-Write
-  fj::VarWsRw<StaticString<STR_LEN>> tempValue;
+  fj::VarWsRw<StringBuffer<STR_LEN>> tempValue;
   
   // Value mode, Prefs on, Read-Only
-  fj::VarWsPrefsRo<StaticString<STR_LEN>> deviceId;
+  fj::VarWsPrefsRo<StringBuffer<STR_LEN>> deviceId;
   
   // Value mode, no Prefs, Read-Only
-  fj::VarWsRo<StaticString<STR_LEN>> statusCode;
+  fj::VarWsRo<StringBuffer<STR_LEN>> statusCode;
   
   // Meta mode, Prefs on, Read-Write
-  fj::VarMetaPrefsRw<StaticString<STR_LEN>> password;
+  fj::VarMetaPrefsRw<StringBuffer<STR_LEN>> password;
   
   // Meta mode, no Prefs, Read-Write
-  fj::VarMetaRw<StaticString<STR_LEN>> secretPin;
+  fj::VarMetaRw<StringBuffer<STR_LEN>> secretPin;
 
   typedef fj::Schema<TestSettings,
                      fj::Field<TestSettings, decltype(name)>,
@@ -53,7 +53,7 @@ struct TestSettings {
 void testVarWsPrefsRw() {
   TEST_START("VarWsPrefsRw (Value+Prefs+RW)");
   
-  fj::VarWsPrefsRw<StaticString<32>> var;
+  fj::VarWsPrefsRw<StringBuffer<32>> var;
   var = "TestValue";
   
   TEST_ASSERT(strcmp(var.c_str(), "TestValue") == 0, "Should store value");
@@ -251,6 +251,72 @@ void testVarOnChange() {
   TEST_END();
 }
 
+// Test struct for VarMetaPrefsRw roundtrip test (must be outside function)
+struct PasswordSettings {
+  static const int PASS_LEN = 64;
+  fj::VarMetaPrefsRw<StringBuffer<PASS_LEN>> password;
+  
+  typedef fj::Schema<PasswordSettings,
+                     fj::Field<PasswordSettings, decltype(password)>>
+      SchemaType;
+  
+  static const SchemaType &schema() {
+    static const SchemaType s = fj::makeSchema<PasswordSettings>(
+        fj::Field<PasswordSettings, decltype(password)>{"password", &PasswordSettings::password});
+    return s;
+  }
+};
+
+// NEW TEST: VarMetaPrefsRw Roundtrip with StringBuffer (would have caught the bug!)
+void testVarMetaPrefsRwRoundtrip() {
+  TEST_START("VarMetaPrefsRw Roundtrip (StringBuffer persistence)");
+  
+  PasswordSettings settings1;
+  settings1.password = "MySecretPassword123";
+  
+  // Serialize to Prefs JSON (simulating save)
+  StaticJsonDocument<512> docSave;
+  JsonObject rootSave = docSave.to<JsonObject>();
+  fj::writeFieldsPrefs(settings1, PasswordSettings::schema(), rootSave);
+  
+  String jsonSaved;
+  serializeJson(rootSave, jsonSaved);
+  Serial.println("Saved to Prefs: " + jsonSaved);
+  
+  // CRITICAL: Verify the password VALUE is in the saved JSON
+  TEST_ASSERT(jsonSaved.indexOf("MySecretPassword123") > 0, 
+              "BUG: Password value MUST be in Prefs JSON! Found: " + jsonSaved);
+  
+  // Deserialize from Prefs JSON (simulating load)
+  PasswordSettings settings2;
+  StaticJsonDocument<512> docLoad;
+  deserializeJson(docLoad, jsonSaved);
+  bool readOk = fj::readFieldsTolerant(settings2, PasswordSettings::schema(), docLoad.as<JsonObject>());
+  
+  TEST_ASSERT(readOk, "Should successfully deserialize from Prefs");
+  TEST_ASSERT(strcmp(settings2.password.c_str(), "MySecretPassword123") == 0, 
+              "Password should be restored correctly");
+  
+  Serial.println("Loaded password: " + String(settings2.password.c_str()));
+  
+  // Additional check: Verify WebSocket serialization is different (should NOT have value, only meta)
+  StaticJsonDocument<512> docWs;
+  JsonObject rootWs = docWs.to<JsonObject>();
+  fj::writeFields(settings1, PasswordSettings::schema(), rootWs);
+  
+  String jsonWs;
+  serializeJson(rootWs, jsonWs);
+  Serial.println("WS serialized: " + jsonWs);
+  
+  // For VarMetaPrefsRw, WS should NOT include the password value
+  TEST_ASSERT(jsonWs.indexOf("MySecretPassword123") == -1,
+              "BUG: WS should NOT leak password value!");
+  TEST_ASSERT(jsonWs.indexOf("\"type\"") > 0,
+              "WS should include metadata type");
+  
+  TEST_END();
+}
+
 void runAllTests() {
   Serial.println("\n===== VAR MODES TESTS =====\n");
   
@@ -261,6 +327,7 @@ void runAllTests() {
   testPrefsFiltering();
   testReadOnlyRejection();
   testVarOnChange();
+  testVarMetaPrefsRwRoundtrip();  // NEW: Would have caught the bug!
   
   Serial.println("\n===== VAR MODES TESTS COMPLETE =====\n");
 }

@@ -33,7 +33,7 @@ void setup() {
   // LogLevel::INFO  - General information (default)
   // LogLevel::WARN  - Warnings only
   // LogLevel::ERROR - Errors only
-  Logger::setLevel(LogLevel::INFO);
+  Logger::setLevel(LogLevel::TRACE);
   
   LOG_INFO("========================================");
   LOG_INFO("ESP32 Test Suite Starting...");

@@ -17,6 +17,7 @@
 // #include "LiveGraphManager.h"
 #include "TimeSync.h"
 #include "AdminPage.h"
+#include "Logger.h"
 
 
 class WiFiProvisioner
@@ -37,7 +38,9 @@ public:
         _mdnsHost("esp32"),
         _fallbackFile("/wifi.html"),
         _infoMessage("<h1>Bitte</h1> wählen Sie ein WLAN aus, um den ESP32 zu konfigurieren."),
-        _staMode(false)
+        _staMode(false),
+        _pendingRestart(false),
+        _restartTime(0)
   {
     //_graphsWs = new AsyncWebSocket("/ws/graphs");
     //_graphs = new LiveGraphManager(*_graphsWs, 20);
@@ -67,17 +70,26 @@ public:
     // try to mount LittleFS (optional: fallback to embedded webfiles)
     _littleFsAvailable = LittleFS.begin();
     if (!_littleFsAvailable) {
-      Serial.println("[WARN] LittleFS konnte nicht gestartet werden; benutze eingebettete Webfiles.");
+      LOG_WARN("LittleFS konnte nicht gestartet werden; benutze eingebettete Webfiles.");
       if (_onStatus) _onStatus("LittleFS nicht gemountet — benutze eingebettete Webfiles.");
     }
 
+    // Initialize Model FIRST (loads Preferences before trying to connect)
+    LOG_TRACE("[Init] Initializing Model and loading Preferences");
+    model.begin();
+    
+    // DEBUG: Show what was loaded from Preferences
+    LOG_TRACE_F("[Init] WiFi credentials loaded - SSID: '%s'", model.wifi.ssid.get().c_str());
+    LOG_TRACE_F("[Init] WiFi credentials loaded - PASS: '%s'  <<< TRACE DEBUG ONLY (LENGTH: %d)", 
+                model.wifi.pass.get().c_str(), strlen(model.wifi.pass.get().c_str()));
+    
     // ensure admin password exists (so it's available regardless of STA/AP)
     _ensureAdminPassword();
     // print admin password for debugging (remove in production)
     const char* adminPw = model.admin.pass;
-    Serial.println(String("[ADMIN] password: ") + adminPw);
+    LOG_INFO_F("[ADMIN] password: %s", adminPw);
 
-    // Try to connect to previously stored WiFi credentials
+    // Try to connect to previously stored WiFi credentials (now loaded from Preferences)
     if (_connectToWiFi()) {
       _staMode = true;
       _startMdns();
@@ -99,13 +111,34 @@ public:
       ota.onStatus([this](const String &s) { if (_onStatus) _onStatus(s); });
       ota.setHostname(_mdnsHost);
       ota.beginIfNeeded(_mdnsHost);
-      Serial.println("[OTA] Passwort: " + ota.getPassword());
+      LOG_INFO("[OTA] Passwort: " + ota.getPassword());
     } else {
       _staMode = false;
       _startAccessPoint();
     }
 
     _registerRoutes();
+    
+    // Initialize log level from model (default to INFO if not set)
+    int level = model.wifi.log_level.get();
+    if (level < 0 || level > 4) {
+      level = 0; // INFO
+      model.wifi.log_level = level;
+    }
+    Logger::setLevel(static_cast<LogLevel>(level));
+    LOG_INFO_F("Log level initialized to: %s (%d)", Logger::levelToString(static_cast<LogLevel>(level)), level);
+    
+    // Register callback for WiFi updates - schedule restart instead of direct reconnect
+    // to avoid watchdog timeout in WebSocket handler context
+    model.onWifiUpdate = [this]() {
+      LOG_INFO("[WiFi] WiFi credentials updated via WebSocket, scheduling restart in 2 seconds");
+      this->_pendingRestart = true;
+      this->_restartTime = millis() + 2000;
+    };
+    
+    // Start initial WiFi scan to populate available_networks
+    LOG_INFO("Starting initial WiFi scan...");
+    WiFi.scanNetworks(true);
   }
 
   void handleDnsLoop()
@@ -118,11 +151,35 @@ public:
 
   void handleLoop()
   {
+    // Handle pending restart (from WiFi credential update)
+    if (_pendingRestart && millis() >= _restartTime) {
+      LOG_INFO("[WiFi] Restarting ESP to apply new WiFi credentials...");
+      LOG_INFO("[WiFi] Waiting for Preferences to flush...");
+      delay(500);  // Give time for Preferences to write and final messages to flush
+      ESP.restart();
+    }
+    
     handleDnsLoop();
 
     if (millis() - lastOta >= 50) {
       lastOta = millis();
       ota.handle();
+    }
+
+    // Check if WiFi scan completed and update model
+    int n = WiFi.scanComplete();
+    if (n >= 0) {
+      LOG_INFO_F("[Loop] WiFi scan completed, found %d networks", n);
+      model.wifi.available_networks.get().clear();
+      for (int i = 0; i < n && i < WifiSettings::MAX_NETWORKS; ++i) {
+        StringBuffer<WifiSettings::SSID_LEN> ssid;
+        ssid.set(WiFi.SSID(i).c_str());
+        model.wifi.available_networks.get().add(ssid);
+        LOG_TRACE_F("[Loop] Added network: %s (RSSI: %d)", WiFi.SSID(i).c_str(), WiFi.RSSI(i));
+      }
+      WiFi.scanDelete();
+      LOG_DEBUG("[Loop] Broadcasting updated network list via WebSocket");
+      model.broadcastAll();
     }
 
     // if (millis() - lastCleanup >= 1000)
@@ -144,44 +201,64 @@ private:
   StatusCallback _onStatus = nullptr;
   uint32_t lastOta = 0;
   uint32_t lastCleanup = 0;
+  bool _pendingRestart = false;
+  unsigned long _restartTime = 0;
     
   bool _connectToWiFi()
   {
     const char* ssid = model.wifi.ssid;
     const char* pass = model.wifi.pass;
 
+    LOG_TRACE_F("[STA] _connectToWiFi called, SSID from model: %s", ssid ? ssid : "null");
+    LOG_TRACE_F("[STA] Password length: %d, first 3 chars: %s***", 
+                pass ? strlen(pass) : 0,
+                (pass && strlen(pass) >= 3) ? String(String(pass).substring(0, 3)).c_str() : "EMPTY");
+    
     if (!ssid || ssid[0] == '\0')
     {
-      Serial.println("[STA] Keine Zugangsdaten gespeichert");
+      LOG_INFO("[STA] Keine Zugangsdaten gespeichert");
       if (_onStatus)
         _onStatus("Keine WLAN-Zugangsdaten gespeichert.");
       return false;
     }
 
     WiFi.mode(WIFI_STA);
+    LOG_TRACE_F("[STA] Attempting WiFi.begin with SSID: %s", ssid);
+    // DEBUG: Print full password only at TRACE level for troubleshooting
+    LOG_TRACE_F("[STA] WiFi.begin(SSID='%s', PASS='%s')  <<< TRACE DEBUG ONLY", ssid, pass ? pass : "");
     WiFi.begin(ssid, pass);
 
     if (_onStatus)
       _onStatus(String("Verbinde mit WLAN: ") + ssid);
-    Serial.printf("[STA] Verbinde mit %s ...\n", ssid);
+    LOG_INFO_F("[STA] Verbinde mit %s ...", ssid);
     unsigned long start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < 15000)
     {
-      delay(500);
-      Serial.print(".");
+      yield();  // Yield to let other tasks run (async tcp, etc)
+      delay(100);  // Shorter delay with yield to prevent watchdog timeout
+      LOG_TRACE(".");
     }
-    Serial.println();
 
     if (WiFi.status() == WL_CONNECTED)
     {
       String ip = WiFi.localIP().toString();
-      Serial.printf("[STA] Verbunden: %s\n", ip.c_str());
+      LOG_INFO_F("[STA] Verbunden: %s", ip.c_str());
+      LOG_TRACE_F("[STA] BSSID: %s, RSSI: %d", WiFi.BSSIDstr().c_str(), WiFi.RSSI());
       if (_onStatus)
         _onStatus("WLAN verbunden:\n" + ip);
+      
+      // If we're in AP mode (i.e., were provisioning), restart after successful connection
+      if (!_staMode) {
+        LOG_INFO("[WiFi] Successfully connected from AP mode, restarting ESP in STA mode...");
+        delay(1000);  // Give time for any final messages
+        ESP.restart();
+      }
+      
       return true;
     }
 
-    Serial.println("[STA] Verbindung fehlgeschlagen");
+    LOG_WARN("[STA] Verbindung fehlgeschlagen");
+    LOG_TRACE("[STA] WiFi status still not connected after 15s timeout");
     if (_onStatus)
       _onStatus("WLAN-Verbindung fehlgeschlagen.");
     return false;
@@ -193,13 +270,13 @@ private:
     {
       MDNS.addService("arduino", "tcp", 3232); // OTA Service annoncieren
       String msg = "Erreichbar unter:\n" + _mdnsHost + ".local";
-      Serial.println("[INFO] " + msg);
+      LOG_INFO(msg);
       if (_onStatus)
         _onStatus(msg);
     }
     else
     {
-      Serial.println("[ERROR] mDNS konnte nicht gestartet werden");
+      LOG_ERROR("mDNS konnte nicht gestartet werden");
       if (_onStatus)
         _onStatus("Fehler: mDNS konnte nicht gestartet werden.");
     }
@@ -215,7 +292,7 @@ private:
 
     if (_onStatus)
       _onStatus("Starte Access Point: " + _apSsid);
-    Serial.println("[INFO] Webserver gestartet (AP-Modus)");
+    LOG_INFO("Webserver gestartet (AP-Modus)");
 
     server.on("/scan", HTTP_GET, [this](AsyncWebServerRequest *request) { _handleScan(request); });
 
@@ -319,15 +396,9 @@ if (ota.getWindowSeconds() == 0) {
           _serveFileWithFallback(request, "/admin.html");
         }
       });
-      // Serve embedded static files (css/js/fonts...) when no explicit STA route matches
-      server.onNotFound([this](AsyncWebServerRequest *request)
-                        { _serveFileWithFallback(request, "/admin.html"); });
     }
     else
     {
-      server.onNotFound([this](AsyncWebServerRequest *request)
-                        { _serveFileWithFallback(request, _fallbackFile); });
-
       server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request)
                 { _serveFileWithFallback(request, _fallbackFile); });
 
@@ -341,27 +412,55 @@ if (ota.getWindowSeconds() == 0) {
     server.on("/graphs", HTTP_GET, [this](AsyncWebServerRequest *request)
           { _serveFileWithFallback(request, "/graphs.html"); });
 
+    // Model already initialized in begin(), now just attach to server
+    // Attach model WebSocket to main HTTP server before onNotFound/server.begin
+    model.attachTo(server);
+
+    // Register onNotFound handlers AFTER model.begin() so WebSocket routes are registered first
+    if (_staMode)
+    {
+      server.onNotFound([this](AsyncWebServerRequest *request)
+                        { _serveFileWithFallback(request, "/admin.html"); });
+    }
+    else
+    {
+      server.onNotFound([this](AsyncWebServerRequest *request)
+                        { _serveFileWithFallback(request, _fallbackFile); });
+    }
+
+    // Start HTTP server once all handlers are registered
     server.begin();
   }
 
   // Route handlers (extracted for clarity)
   void _handleScan(AsyncWebServerRequest *request)
   {
+    LOG_DEBUG("[Scan] Scan request received");
     int n = WiFi.scanComplete();
-    if (n == -2) WiFi.scanNetworks(true);
+    LOG_DEBUG_F("[Scan] scanComplete returned: %d", n);
+    
+    if (n == -2) {
+      LOG_DEBUG("[Scan] Starting async scan...");
+      WiFi.scanNetworks(true);
+    }
     if (n == -1) {
+      LOG_DEBUG("[Scan] Scan in progress, returning empty array");
       request->send(200, "application/json", "[]");
       return;
     }
 
+    LOG_INFO_F("[Scan] Found %d networks", n);
+    
     // Update model with available networks
-    model.wifi.available_networks.clear();
+    model.wifi.available_networks.get().clear();
     for (int i = 0; i < n && i < WifiSettings::MAX_NETWORKS; ++i) {
-      StaticString<WifiSettings::SSID_LEN> ssid;
+      StringBuffer<WifiSettings::SSID_LEN> ssid;
       ssid.set(WiFi.SSID(i).c_str());
-      model.wifi.available_networks.add(ssid);
+      model.wifi.available_networks.get().add(ssid);
+      LOG_TRACE_F("[Scan] Added network: %s", WiFi.SSID(i).c_str());
     }
     // Trigger WebSocket update via model broadcast
+    LOG_DEBUG("[Scan] Broadcasting model update via WebSocket");
     model.broadcastAll();
 
     DynamicJsonDocument doc(1024);
@@ -505,13 +604,13 @@ if (ota.getWindowSeconds() == 0) {
     {
       String newPw = _generatePassword(12);
       model.admin.pass = newPw.c_str();
-      Serial.println("[ADMIN] Generated password: " + newPw);
+      LOG_INFO("[ADMIN] Generated password: " + newPw);
       if (_onStatus) _onStatus("Admin password generated.");
     }
     else
     {
-      Serial.println("[ADMIN] Password exists.");
-      Serial.println(String("[ADMIN] Password: ") + pw);
+      LOG_INFO("[ADMIN] Password exists.");
+      LOG_INFO_F("[ADMIN] Password: %s", pw);
     }
   }
 

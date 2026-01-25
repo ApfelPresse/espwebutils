@@ -1,7 +1,7 @@
 #pragma once
 #include "../test_helpers.h"
 #include "../../src/model/ModelSerializer.h"
-#include "../../src/model/ModelTypeStaticString.h"
+#include "../../src/model/ModelTypePrimitive.h"
 #include "../../src/model/ModelVar.h"
 #include <Preferences.h>
 
@@ -12,8 +12,8 @@ struct TestSettings {
   static const int NAME_LEN = 32;
   static const int PASS_LEN = 64;
 
-  fj::VarWsPrefsRw<StaticString<NAME_LEN>> name;
-  fj::VarMetaPrefsRw<StaticString<PASS_LEN>> password;
+  fj::VarWsPrefsRw<StringBuffer<NAME_LEN>> name;
+  fj::VarMetaPrefsRw<StringBuffer<PASS_LEN>> password;
 
   typedef fj::Schema<TestSettings,
                      fj::Field<TestSettings, decltype(name)>,

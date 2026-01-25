@@ -81,33 +81,50 @@ struct TypeAdapter<List<T, N>> {
   static const char* type_name() { return "list"; }
 
   static void write_ws(const List<T, N>& list, JsonObject out) {
+    LOG_TRACE_F("[List::write_ws] Writing list with count=%zu, capacity=%zu", list.count, N);
     out["type"] = "list";
     out["count"] = list.count;
     out["capacity"] = N;
     
     JsonArray arr = out.createNestedArray("items");
     for (size_t i = 0; i < list.count; ++i) {
+      LOG_TRACE_F("[List::write_ws] Item[%zu]", i);
       list_detail::writeListItem(arr, list.items[i]);
     }
+    LOG_TRACE_F("[List::write_ws] Completed");
   }
 
   static void write_prefs(const List<T, N>& list, JsonObject out) {
     // Same as write_ws for now (lists typically not persisted anyway)
+    LOG_TRACE_F("[List::write_prefs] Called, delegating to write_ws");
     write_ws(list, out);
   }
 
   static bool read(List<T, N>& list, JsonObject in, bool /*strict*/) {
-    if (!in.containsKey("items")) return false;
+    LOG_TRACE_F("[List::read] Starting, checking for 'items' key");
     
+    if (!in.containsKey("items")) {
+      LOG_TRACE_F("[List::read] No 'items' key found, returning false");
+      return false;
+    }
+    
+    LOG_TRACE_F("[List::read] Found 'items' key, parsing array");
     JsonArray arr = in["items"].as<JsonArray>();
     list.clear();
     
+    size_t idx = 0;
     for (JsonVariant v : arr) {
-      if (list.isFull()) break;
+      if (list.isFull()) {
+        LOG_TRACE_F("[List::read] List is full at idx=%zu, stopping", idx);
+        break;
+      }
+      LOG_TRACE_F("[List::read] Reading item[%zu]", idx);
       T item = list_detail::readListItem<T>(v);
       list.add(item);
+      idx++;
     }
     
+    LOG_TRACE_F("[List::read] Completed, final count=%zu", list.count);
     return true;
   }
 };

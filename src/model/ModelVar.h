@@ -58,6 +58,12 @@ struct has_set_cstr {
   static const bool value = decltype(test<T>(0))::value;
 };
 
+// Trait to check if T can be assigned from const char* (without set/c_str methods - i.e., NOT List)
+template <typename T>
+struct is_string_like {
+  static const bool value = has_set_cstr<T>::value && has_c_str<T>::value;
+};
+
 // ---- initialized_of(T) ----
 
 template <typename T>
@@ -159,45 +165,111 @@ inline void assign_from_cstr(T& dst, const char* s) {
   assign_from_cstr_impl(dst, s, std::integral_constant<bool, has_set_cstr<T>::value>{});
 }
 
+// Small helper: log value if it exposes c_str(); otherwise no-op
+template <typename T>
+inline void log_value_if_cstr(const char* key, const T& val, std::true_type) {
+  LOG_TRACE_F("[ModelVar] String-like value for key='%s': '%s' (length=%zu)", key, val.c_str(), strlen(val.c_str()));
+}
+
+template <typename T>
+inline void log_value_if_cstr(const char*, const T&, std::false_type) {
+  // Non-string types: skip detailed value logging
+}
+
 template <typename T>
 inline void write_value_impl(JsonObject out, const char* key, const T& v, std::true_type /*has typeadapter*/) {
   // Use TypeAdapter::write_ws
+  LOG_TRACE_F("[write_value_impl] TypeAdapter path for key='%s'", key);
   JsonObject nested = out.createNestedObject(key);
   fj::TypeAdapter<T>::write_ws(v, nested);
+  LOG_TRACE_F("[write_value_impl] TypeAdapter write_ws completed for key='%s'", key);
 }
 
 template <typename T>
 inline void write_value_impl_no_adapter(JsonObject out, const char* key, const T& v, std::true_type /*has c_str*/) {
+  LOG_TRACE_F("[write_value_impl_no_adapter] c_str path for key='%s', value='%s'", key, v.c_str());
   out[key] = v.c_str();
 }
 
 template <typename T>
 inline void write_value_impl_no_adapter(JsonObject out, const char* key, const T& v, std::false_type /*no c_str*/) {
+  LOG_TRACE_F("[write_value_impl_no_adapter] Direct assignment path for key='%s'", key);
   out[key] = v;
 }
 
 template <typename T>
 inline void write_value_impl(JsonObject out, const char* key, const T& v, std::false_type /*no typeadapter*/) {
+  LOG_TRACE_F("[write_value_impl] Non-TypeAdapter path for key='%s'", key);
   write_value_impl_no_adapter(out, key, v, std::integral_constant<bool, has_c_str<T>::value>{});
 }
 
 template <typename T>
 inline void write_value(JsonObject out, const char* key, const T& v) {
+  LOG_TRACE_F("[write_value] Dispatching for key='%s', has_typeadapter=%s", key, has_typeadapter_write_ws<T>::value ? "YES" : "NO");
   write_value_impl(out, key, v, std::integral_constant<bool, has_typeadapter_write_ws<T>::value>{});
+  LOG_TRACE_F("[write_value] Dispatch completed for key='%s'", key);
 }
 
 
+// Forward declarations for string fallback helpers
 template <typename T>
-inline bool read_value_from_variant(T& dst, JsonVariant v) {
+inline bool read_value_from_variant_string_fallback(T& dst, JsonVariant v, std::true_type);
+
+template <typename T>
+inline bool read_value_from_variant_string_fallback(T&, JsonVariant, std::false_type);
+
+// Helper: string fallback enabled (for StaticString)
+template <typename T>
+inline bool read_value_from_variant_string_fallback(T& dst, JsonVariant v, std::true_type /*is_string_like*/) {
+  if (!v.is<const char*>()) return false;
+  const char* s = v.as<const char*>();
+  if (!s) return false;
+  dst.set(s);
+  return true;
+}
+
+// Helper: string fallback disabled (for List and other non-string types)
+template <typename T>
+inline bool read_value_from_variant_string_fallback(T&, JsonVariant, std::false_type /*not_string_like*/) {
+  return false;
+}
+
+// Overload for types that have a TypeAdapter::read -> avoid compiling string assignment paths
+// This overload handles TypeAdapter types
+template <typename T>
+inline typename std::enable_if<has_typeadapter_read<T>::value, bool>::type
+read_value_from_variant(T& dst, JsonVariant v) {
+  LOG_TRACE_F("[ModelVar::read_value_from_variant] TypeAdapter path, v.isNull()=%s", v.isNull() ? "true" : "false");
+  if (v.isNull()) {
+    LOG_TRACE("[ModelVar::read_value_from_variant] Variant is NULL, returning false");
+    return false;
+  }
+  
+  // Object form (TypeAdapter's expected format)
+  if (v.is<JsonObject>()) {
+    LOG_TRACE("[ModelVar::read_value_from_variant] Variant is JsonObject, calling TypeAdapter::read");
+    JsonObject o = v.as<JsonObject>();
+    bool result = fj::TypeAdapter<T>::read(dst, o, false);
+    LOG_TRACE_F("[ModelVar::read_value_from_variant] TypeAdapter::read returned: %s", result ? "true" : "false");
+    return result;
+  }
+  
+  LOG_TRACE("[ModelVar::read_value_from_variant] Variant is not JsonObject, trying string fallback");
+  // Fallback: plain string ONLY for string-like types (StaticString), NOT List
+  // Use SFINAE-friendly check at compile time
+  return read_value_from_variant_string_fallback(dst, v, std::integral_constant<bool, is_string_like<T>::value>{});
+}
+
+
+// Fallback for non-TypeAdapter types (strings, scalars, custom with set())
+template <typename T>
+inline typename std::enable_if<!has_typeadapter_read<T>::value, bool>::type
+read_value_from_variant(T& dst, JsonVariant v) {
   if (v.isNull()) return false;
 
-  // Object form: {"value": ...} or adapter-specific.
+  // Object form: {"value": ...}
   if (v.is<JsonObject>()) {
     JsonObject o = v.as<JsonObject>();
-
-    // Try project TypeAdapter<T>::read(dst, o, false) if available (priority).
-    if (try_typeadapter_read(dst, o, std::integral_constant<bool, has_typeadapter_read<T>::value>{}))
-      return true;
 
     if (!o["value"].isNull()) {
       JsonVariant vv = o["value"];
@@ -220,27 +292,11 @@ inline bool read_value_from_variant(T& dst, JsonVariant v) {
     return false;
   }
 
-  // For types with TypeAdapter, don't try string assignment
-  if (has_typeadapter_read<T>::value) {
-    // Wrap value into object and use adapter
-    StaticJsonDocument<512> tmp;
-    JsonObject o = tmp.to<JsonObject>();
-    o["items"] = v; // For List, expect array in "items"
-    return fj::TypeAdapter<T>::read(dst, o, false);
-  }
-
-  // Plain string
-  if (v.is<const char*>()) {
-    const char* s = v.as<const char*>();
-    if (!s) return false;
-    assign_from_cstr(dst, s);
-    return true;
-  }
-
-  // Scalars / String
+  // Plain scalar
   if (assign_from_variant_scalar(dst, v, std::integral_constant<bool, is_scalar<T>::value>{}))
     return true;
 
+  // Plain string
   if (assign_from_variant_string(dst, v, std::integral_constant<bool, std::is_same<T, String>::value>{}))
     return true;
 
@@ -263,15 +319,24 @@ public:
   const T& get() const { return value_; }
   T&       get()       { return value_; }
 
-  void setOnChange(std::function<void()> cb) { on_change_ = cb; }
+  void setOnChange(std::function<void()> cb) { 
+    LOG_TRACE_F("[Var] setOnChange callback registered");
+    on_change_ = cb; 
+  }
 
-  void touch() { notify_(); }
+  void touch() { 
+    LOG_TRACE_F("[Var] touch() called, notifying");
+    notify_(); 
+  }
 
   // Generic set (always notifies; keep it simple and predictable)
   template <typename U>
   void set(U&& v) {
+    LOG_TRACE_F("[Var::set] Called with new value");
     assign_(std::forward<U>(v));
+    LOG_TRACE_F("[Var::set] Assignment completed, calling notify");
     notify_();
+    LOG_TRACE_F("[Var::set] Notify completed");
   }
 
   // Implicit conversions (so existing code keeps working)
@@ -295,8 +360,14 @@ public:
 
   // Assignment operators
   Var& operator=(const T& v) { set(v); return *this; }
-  Var& operator=(const String& s) { set(s); return *this; }
-  Var& operator=(const char* s) { set(s); return *this; }
+
+  template <typename U = T>
+  typename std::enable_if<detail::has_set_cstr<U>::value || std::is_assignable<U&, const char*>::value, Var&>::type
+  operator=(const String& s) { set(s); return *this; }
+
+  template <typename U = T>
+  typename std::enable_if<detail::has_set_cstr<U>::value || std::is_assignable<U&, const char*>::value, Var&>::type
+  operator=(const char* s) { set(s); return *this; }
 
   // Arithmetic-like ops (only participate if underlying supports them)
   template <typename U>
@@ -313,20 +384,35 @@ private:
   T value_;
   std::function<void()> on_change_;
 
-  void notify_() { if (on_change_) on_change_(); }
+  void notify_() { 
+    if (on_change_) {
+      LOG_TRACE("[Var] Calling on_change callback");
+      on_change_(); 
+    }
+  }
 
-  void assign_(const T& v) { value_ = v; }
+  void assign_(const T& v) { 
+    LOG_TRACE_F("[Var::assign_] Direct assignment");
+    value_ = v; 
+  }
   
-  void assign_(const String& s) { 
+  template <typename U = T>
+  typename std::enable_if<detail::has_set_cstr<U>::value || std::is_assignable<U&, const char*>::value, void>::type
+  assign_(const String& s) { 
+    LOG_TRACE_F("[Var::assign_] From String: '%s'", s.c_str());
     detail::assign_from_cstr(value_, s.c_str()); 
   }
   
-  void assign_(const char* s) { 
+  template <typename U = T>
+  typename std::enable_if<detail::has_set_cstr<U>::value || std::is_assignable<U&, const char*>::value, void>::type
+  assign_(const char* s) { 
+    LOG_TRACE_F("[Var::assign_] From const char*: '%s'", s ? s : "nullptr");
     detail::assign_from_cstr(value_, s); 
   }
 
   template <typename U>
   void assign_(U&& v) { 
+    LOG_TRACE("[Var::assign_] From rvalue");
     value_ = std::forward<U>(v); 
   }
 };
@@ -347,43 +433,108 @@ template <typename T> using VarMetaRo      = Var<T, WsMode::Meta,  PrefsMode::Of
 
 template <typename ObjT, typename T, WsMode WS, PrefsMode PREFS, WriteMode WRITE>
 inline void writeOne(const ObjT& obj, const Field<ObjT, Var<T, WS, PREFS, WRITE>>& f, JsonObject out) {
+  LOG_TRACE_F("[writeOne] Var key='%s', WsMode=%d", f.key, (int)WS);
   const Var<T, WS, PREFS, WRITE>& v = (obj.*(f.member));
-  if (WS == WsMode::None) return;
+  if (WS == WsMode::None) {
+    LOG_TRACE_F("[writeOne] WsMode=None, skipping");
+    return;
+  }
 
   if (WS == WsMode::Meta) {
+    LOG_TRACE_F("[writeOne] WsMode=Meta, writing metadata only");
     JsonObject nested = out.createNestedObject(f.key);
     nested["type"] = "secret";
     nested["initialized"] = detail::initialized_of(v.get());
+    LOG_TRACE_F("[writeOne] Meta write completed for key='%s'", f.key);
     return;
   }
 
   // WS == Value
+  LOG_TRACE_F("[writeOne] WsMode=Value, writing actual value");
   detail::write_value(out, f.key, v.get());
+  LOG_TRACE_F("[writeOne] Value write completed for key='%s'", f.key);
 }
 
 template <typename ObjT, typename T, WsMode WS, PrefsMode PREFS, WriteMode WRITE>
 inline void writeOnePrefs(const ObjT& obj, const Field<ObjT, Var<T, WS, PREFS, WRITE>>& f, JsonObject out) {
-  if (PREFS == PrefsMode::Off) return;
+  LOG_TRACE_F("[ModelVar] writeOnePrefs called for Var key='%s', WS=%d, PREFS=%d", 
+              f.key, (int)WS, (int)PREFS);
+  if (PREFS == PrefsMode::Off) {
+    LOG_TRACE_F("[ModelVar] Skipping, PREFS=Off");
+    return;
+  }
   const Var<T, WS, PREFS, WRITE>& v = (obj.*(f.member));
-  detail::write_value(out, f.key, v.get());
+  // For Prefs, ALWAYS write the actual value, not metadata (unlike WebSocket)
+  LOG_TRACE_F("[ModelVar] About to write key='%s', getting value from Var", f.key);
+  const T& val = v.get();
+  // Log the value being written (only for c_str capable types)
+  detail::log_value_if_cstr(f.key, val, std::integral_constant<bool, detail::has_c_str<T>::value>{});
+  
+  LOG_TRACE_F("[ModelVar] Got value, calling write_prefs_value for key='%s'", f.key);
+  fj::detail::write_prefs_value(out, f.key, val);
+  LOG_TRACE_F("[ModelVar] write_prefs_value completed for key='%s'", f.key);
 }
 
+// TypeAdapter-backed vars: avoid string assignment path entirely
 template <typename ObjT, typename T, WsMode WS, PrefsMode PREFS, WriteMode WRITE>
-inline bool readOne(ObjT& obj, const Field<ObjT, Var<T, WS, PREFS, WRITE>>& f, JsonObject in) {
-  LOG_TRACE_F("readOne for Var, key='%s', WRITE=%s", f.key, WRITE == WriteMode::Off ? "Off" : "On");
-  
+inline typename std::enable_if<detail::has_typeadapter_read<T>::value, bool>::type
+readOne(ObjT& obj, const Field<ObjT, Var<T, WS, PREFS, WRITE>>& f, JsonObject in) {
+  LOG_TRACE_F("readOne (Var/TypeAdapter) key='%s', WRITE=%s", f.key, WRITE == WriteMode::Off ? "Off" : "On");
+  bool keyExists = in.containsKey(f.key);
+  LOG_TRACE_F("[ModelVar] Key '%s' exists in JSON: %s", f.key, keyExists ? "YES" : "NO");
+
   if (WRITE == WriteMode::Off) {
-    // Tolerant ignore (lets strict mode still pass? strict uses return value,
-    // but strict here should still reject a write attempt)
     JsonVariant probe = in[f.key];
-    bool result = probe.isNull(); // missing => ok, present => reject
+    bool result = probe.isNull();
     LOG_TRACE_F("  -> Read-only, probe.isNull()=%s", result ? "true" : "false");
     return result;
   }
 
   JsonVariant v = in[f.key];
   if (v.isNull()) {
-    LOG_TRACE("  -> variant is NULL");
+    LOG_TRACE_F("[ModelVar] Variant for key '%s' is NULL", f.key);
+    return false;
+  }
+
+  Var<T, WS, PREFS, WRITE>& dst = (obj.*(f.member));
+
+  LOG_TRACE_F("[ModelVar] Variant for key '%s' is JsonObject: %s", f.key, v.is<JsonObject>() ? "YES" : "NO");
+  
+  if (v.is<JsonObject>()) {
+    JsonObject o = v.as<JsonObject>();
+    bool hasValue = !o["value"].isNull();
+    LOG_TRACE_F("[ModelVar] JsonObject has 'value' field: %s", hasValue ? "YES" : "NO");
+    if (hasValue) {
+      LOG_TRACE_F("[ModelVar] Reading from nested 'value' field");
+      bool result = detail::read_value_from_variant(dst.get(), o["value"]);
+      LOG_TRACE_F("[ModelVar] read_value_from_variant returned: %s", result ? "true" : "false");
+      return result;
+    }
+  }
+
+  LOG_TRACE_F("[ModelVar] Reading directly from variant");
+  bool result = detail::read_value_from_variant(dst.get(), v);
+  LOG_TRACE_F("[ModelVar] read_value_from_variant returned: %s", result ? "true" : "false");
+  return result;
+}
+
+// Fallback for scalar/string vars (legacy string assignment allowed)
+template <typename ObjT, typename T, WsMode WS, PrefsMode PREFS, WriteMode WRITE>
+inline typename std::enable_if<!detail::has_typeadapter_read<T>::value, bool>::type
+readOne(ObjT& obj, const Field<ObjT, Var<T, WS, PREFS, WRITE>>& f, JsonObject in) {
+  LOG_TRACE_F("readOne (Var) called for key='%s', WRITE=%s", f.key, WRITE == WriteMode::Off ? "Off" : "On");
+
+  if (WRITE == WriteMode::Off) {
+    JsonVariant probe = in[f.key];
+    bool result = probe.isNull();
+    LOG_TRACE_F("  -> Read-only, probe.isNull()=%s", result ? "true" : "false");
+    return result;
+  }
+
+  JsonVariant v = in[f.key];
+
+  if (v.isNull()) {
+    LOG_TRACE("  -> Variant is NULL");
     return false;
   }
 
@@ -425,9 +576,6 @@ inline bool readOne(ObjT& obj, const Field<ObjT, Var<T, WS, PREFS, WRITE>>& f, J
   }
 
   LOG_TRACE("  -> Calling read_value_from_variant with direct variant");
-  
-  // OLD approach - doesn't work because dst.get() might not properly modify dst
-  // bool result = detail::read_value_from_variant(dst.get(), v);
   
   // NEW approach - extract value and assign via operator=
   if (v.is<const char*>()) {

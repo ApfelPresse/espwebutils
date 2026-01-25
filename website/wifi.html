@@ -51,6 +51,59 @@
       border-radius: 4px;
       margin-bottom: 1rem;
     }
+
+    #debugPanel {
+      margin-top: 2rem;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background-color: #f5f5f5;
+      display: flex;
+      flex-direction: column;
+      max-height: 60vh;
+    }
+
+    #debugPanel h6 {
+      background-color: #263238;
+      color: white;
+      padding: 0.75rem 1rem;
+      margin: 0;
+      border-radius: 4px 4px 0 0;
+      flex-shrink: 0;
+      font-size: 0.95rem;
+    }
+
+    #debugLog {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 0.75rem;
+      font-family: 'Courier New', monospace;
+      font-size: 0.7rem;
+      background-color: #263238;
+      color: #aed581;
+      margin: 0;
+      word-break: break-all;
+    }
+
+    .debug-entry {
+      margin-bottom: 0.25rem;
+      line-height: 1.2;
+    }
+
+    .debug-timestamp {
+      color: #64b5f6;
+      margin-right: 0.3rem;
+      display: inline-block;
+      min-width: 70px;
+    }
+
+    .debug-direction {
+      color: #ffb74d;
+      font-weight: bold;
+      margin-right: 0.3rem;
+      display: inline-block;
+      min-width: 40px;
+    }
   </style>
 </head>
 
@@ -66,7 +119,11 @@
   <div class="status-message" id="statusMessage"></div>
 
   <!-- Available networks -->
-  <h5>Verfügbare Netzwerke</h5>
+  <h5>Verfügbare Netzwerke
+    <a class="btn-floating btn-small waves-effect waves-light blue right" onclick="scanNetworks()" title="Netzwerke scannen">
+      <i class="material-icons">refresh</i>
+    </a>
+  </h5>
 
   <div id="loader">
     <div class="preloader-wrapper active">
@@ -87,6 +144,15 @@
 
   <ul class="collection" id="wifiList"></ul>
 
+  <!-- Debug Panel (shown only in TRACE mode) -->
+  <div id="debugPanel" style="display: none;">
+    <h6>
+      WebSocket Debug Log
+      <a class="btn-flat btn-small waves-effect white-text right" onclick="clearDebugLog()" style="padding: 0 0.5rem;">Clear</a>
+    </h6>
+    <div id="debugLog"></div>
+  </div>
+
   <!-- Password modal -->
   <div id="passModal" class="modal">
     <div class="modal-content">
@@ -105,8 +171,46 @@
 
   <script src="/js/materialize.min.js"></script>
   <script>
+    // ========== Debug Mode Detection ==========
+    let DEBUG_MODE = false; // Will be set based on log_level from model
+    
+    function setDebugMode(enabled) {
+      DEBUG_MODE = enabled;
+      document.getElementById('debugPanel').style.display = enabled ? 'block' : 'none';
+      if (enabled) {
+        addDebugLog('ℹ INFO', 'Debug mode enabled (log_level = TRACE)');
+      }
+    }
+    
+    function addDebugLog(direction, data) {
+      if (!DEBUG_MODE) return;
+      
+      const debugLog = document.getElementById('debugLog');
+      const entry = document.createElement('div');
+      entry.className = 'debug-entry';
+      
+      const timestamp = new Date().toLocaleTimeString('de-DE', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+      const jsonStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+      
+      entry.innerHTML = `<span class="debug-timestamp">${timestamp}</span><span class="debug-direction">${direction}</span>${jsonStr}`;
+      debugLog.appendChild(entry);
+      
+      // Auto-scroll to bottom
+      debugLog.scrollTop = debugLog.scrollHeight;
+      
+      // Limit to last 100 entries
+      while (debugLog.children.length > 100) {
+        debugLog.removeChild(debugLog.firstChild);
+      }
+    }
+    
+    function clearDebugLog() {
+      document.getElementById('debugLog').innerHTML = '';
+    }
+    
     // ========== WebSocket Communication ==========
     let ws = null;
+    let passModal = null; // Global variable for modal
     let modelData = {
       wifi: {
         ssid: "",
@@ -119,76 +223,129 @@
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws`;
       
+      console.log('[WS] Connecting to:', wsUrl);
+      addDebugLog('ℹ INFO', `Connecting to ${wsUrl}`);
       ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
         console.log("[WS] Connected");
+        addDebugLog('✓ SUCCESS', 'WebSocket connected');
       };
       
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
           console.log("[WS] Received:", msg);
+          addDebugLog('⬇ RX', msg);
           
           if (msg.topic === 'wifi') {
             updateWifiModel(msg.data);
+          } else {
+            console.log(`[WS] Ignoring topic: ${msg.topic}`);
           }
         } catch (e) {
           console.error("[WS] Parse error:", e);
+          addDebugLog('⚠ ERROR', `Parse error: ${e.message}`);
         }
       };
       
       ws.onerror = (error) => {
         console.error("[WS] Error:", error);
+        addDebugLog('⚠ ERROR', `WebSocket error: ${error.type}`);
         showError("WebSocket-Fehler: Verbindung zum Gerät verloren");
       };
       
       ws.onclose = () => {
         console.log("[WS] Disconnected, reconnecting in 3 seconds...");
+        addDebugLog('ℹ INFO', 'WebSocket closed, reconnecting in 3s...');
         setTimeout(connectWebSocket, 3000);
       };
     }
 
     function updateWifiModel(data) {
       console.log("[Model] WiFi update:", data);
+      addDebugLog('ℹ INFO', 'Model update received');
       
       if (data.ssid !== undefined) {
         modelData.wifi.ssid = data.ssid.value || "";
+        console.log('[Model] SSID updated to:', modelData.wifi.ssid);
       }
       
       if (data.pass !== undefined) {
         // Don't store password locally for security
         modelData.wifi.pass = "";
+        console.log('[Model] Password field present (not stored locally)');
       }
       
       if (data.available_networks !== undefined) {
         const networks = data.available_networks;
+        console.log('[Model] Available networks:', networks);
         if (networks.items && Array.isArray(networks.items)) {
           modelData.wifi.available_networks = networks.items;
+          console.log(`[Model] Updated network list: ${networks.items.length} networks`);
+          addDebugLog('ℹ INFO', `Network list updated: ${networks.items.length} networks`);
           renderWifiList();
         }
+      }
+      
+      // Check log_level to enable/disable debug panel
+      if (data.log_level !== undefined) {
+        const logLevel = data.log_level.value !== undefined ? data.log_level.value : data.log_level;
+        console.log('[Model] Log level:', logLevel);
+        setDebugMode(logLevel === 0); // TRACE = 0
       }
       
       updateCurrentSsid();
     }
 
     function sendWifiUpdate(ssid, password) {
+      console.log('[WS] sendWifiUpdate called with:', { ssid, password });
+      addDebugLog('ℹ INFO', `Attempting to send WiFi update: SSID=${ssid}`);
+      
       if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.error('[WS] WebSocket not connected, readyState:', ws ? ws.readyState : 'null');
         showError("Nicht mit WebSocket verbunden");
+        addDebugLog('⚠ ERROR', 'WebSocket not connected');
         return;
       }
 
       const update = {
-        wifi: {
+        topic: "wifi",
+        data: {
           ssid: ssid,
           pass: password
         }
       };
-
+      
+      const updateStr = JSON.stringify(update);
       console.log("[WS] Sending WiFi update:", update);
-      ws.send(JSON.stringify(update));
+      addDebugLog('⬆ TX', update);
+      ws.send(updateStr);
       
       showSuccess("Verbindungsversuch gestartet...");
+    }
+
+    function scanNetworks() {
+      console.log('[Scan] scanNetworks called');
+      addDebugLog('ℹ INFO', 'Starting network scan...');
+      document.getElementById('loader').style.display = 'block';
+      
+      fetch('/scan')
+        .then(response => {
+          console.log('[Scan] Response status:', response.status);
+          return response.json();
+        })
+        .then(data => {
+          console.log("[Scan] Got networks:", data);
+          addDebugLog('ℹ INFO', `Scan completed: ${data.length} networks found`);
+          // WebSocket will update the model automatically
+        })
+        .catch(error => {
+          console.error("[Scan] Error:", error);
+          addDebugLog('⚠ ERROR', `Scan failed: ${error.message}`);
+          showError("Fehler beim Scannen der Netzwerke");
+          document.getElementById('loader').style.display = 'none';
+        });
     }
 
     // ========== UI Functions ==========
@@ -209,10 +366,15 @@
           <i class="material-icons wifi-strength">wifi</i>
         `;
         li.onclick = () => {
+          console.log('[UI] Opening modal for SSID:', ssid);
           document.getElementById('modalSsid').textContent = ssid;
           document.getElementById('wifiPass').value = '';
           M.updateTextFields();
-          passModal.open();
+          if (passModal) {
+            passModal.open();
+          } else {
+            console.error('[UI] passModal not initialized');
+          }
         };
         list.appendChild(li);
       });
@@ -249,8 +411,9 @@
 
     // ========== Init ==========
     document.addEventListener('DOMContentLoaded', () => {
-      // Initialize modal
-      const passModal = M.Modal.init(document.getElementById('passModal'));
+      // Initialize modal (global variable)
+      passModal = M.Modal.init(document.getElementById('passModal'));
+      console.log('[Init] Modal initialized:', passModal !== null);
       
       // Connect WebSocket
       connectWebSocket();
@@ -262,6 +425,8 @@
         const ssid = document.getElementById('modalSsid').textContent;
         const pass = document.getElementById('wifiPass').value;
         
+        console.log('[Submit] Form data:', { ssid, pass });
+        
         if (!ssid || !pass) {
           showError("Bitte SSID und Passwort eingeben");
           return;
@@ -271,8 +436,9 @@
         passModal.close();
       };
       
-      // Show loader initially
-      document.getElementById('loader').style.display = 'block';
+      // Trigger initial scan
+      console.log('[Init] Starting initial network scan');
+      scanNetworks();
     });
   </script>
 </body>

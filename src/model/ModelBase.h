@@ -17,31 +17,39 @@ public:
   : server_(port), ws_(wsPath) {}
 
   void begin() {
+    LOG_TRACE("[Model] ModelBase::begin() - opening Preferences namespace 'model'");
     prefs_.begin("model", false);
+    LOG_TRACE("[Model] Loading all topics from Preferences");
     loadOrInitAll();
+    LOG_TRACE("[Model] All topics loaded, registering WebSocket handler");
 
     ws_.onEvent([this](AsyncWebSocket* s, AsyncWebSocketClient* c,
                        AwsEventType t, void* a, uint8_t* d, size_t l) {
       this->onWsEvent(s, c, t, a, d, l);
     });
+  }
 
-    server_.addHandler(&ws_);
-    server_.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
+  // Attach the model's WebSocket handler to an existing AsyncWebServer.
+  // Call this once before server.begin().
+  void attachTo(AsyncWebServer& server) {
+    server.addHandler(&ws_);
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) {
       req->send(200, "text/plain", "WS ready at /ws");
     });
-
-    server_.begin();
   }
 
   bool broadcastTopic(const char* topic) {
     Entry* e = find(topic);
     if (!e) return false;
     if (!e->ws_send) return true;
-    ws_.textAll(makeEnvelope(*e));
+    String envelope = makeEnvelope(*e);
+    LOG_TRACE_F("[WS] Broadcasting topic '%s' (%u bytes): %s", topic, envelope.length(), envelope.c_str());
+    ws_.textAll(envelope);
     return true;
   }
 
   void broadcastAll() {
+    LOG_TRACE_F("[WS] Broadcasting all %zu topics", entryCount_);
     for (size_t i = 0; i < entryCount_; ++i) {
       if (!entries_[i].ws_send) continue;
       ws_.textAll(makeEnvelope(entries_[i]));
@@ -184,32 +192,59 @@ private:
   }
 
   String makeDataOnlyJson(Entry& e) {
+    LOG_TRACE_F("[ModelBase] makeDataOnlyJson starting for topic '%s'", e.topic);
     StaticJsonDocument<JSON_CAPACITY> doc;
     JsonObject data = doc.to<JsonObject>();
 
+    LOG_TRACE_F("[ModelBase] Calling makePrefsJson for topic '%s'", e.topic);
     e.makePrefsJson(e.objPtr, data);
+    LOG_TRACE_F("[ModelBase] makePrefsJson completed");
 
     String out;
     serializeJson(doc, out);
+    LOG_TRACE_F("[ModelBase] makeDataOnlyJson result: %s", out.c_str());
     return out;
   }
 
   bool saveEntry(Entry& e) {
-    if (!e.persist) return true;
-    return prefs_.putString(e.topic, makeDataOnlyJson(e)) > 0;
+    if (!e.persist) {
+      LOG_TRACE_F("[Prefs] Topic '%s' not persisted (persist=false)", e.topic);
+      return true;
+    }
+    LOG_TRACE_F("[Prefs] saveEntry starting for topic '%s'", e.topic);
+    String dataJson = makeDataOnlyJson(e);
+    LOG_INFO_F("[Prefs] Saving topic '%s': %s", e.topic, dataJson.c_str());
+    size_t written = prefs_.putString(e.topic, dataJson);
+    LOG_INFO_F("[Prefs] Written %u bytes for topic '%s'", written, e.topic);
+    if (written == 0) {
+      LOG_WARN_F("[Prefs] FAILED to write topic '%s' - putString returned 0", e.topic);
+    }
+    LOG_TRACE_F("[Prefs] saveEntry completed for topic '%s', success=%s", e.topic, written > 0 ? "true" : "false");
+    return written > 0;
   }
 
   bool loadEntry(Entry& e) {
-    if (!e.persist) return true;
+    if (!e.persist) {
+      LOG_TRACE_F("[Prefs] Topic '%s' not persisted (persist=false)", e.topic);
+      return true;
+    }
 
-    if (!prefs_.isKey(e.topic))
+    if (!prefs_.isKey(e.topic)) {
+      LOG_TRACE_F("[Prefs] Topic '%s' not found in Preferences, initializing", e.topic);
       return saveEntry(e);
+    }
 
     String dataJson = prefs_.getString(e.topic, "");
-    if (!dataJson.length())
+    if (!dataJson.length()) {
+      LOG_TRACE_F("[Prefs] Topic '%s' exists but empty", e.topic);
       return false;
+    }
 
-    return e.applyUpdate(e.objPtr, dataJson, false);
+    LOG_TRACE_F("[Prefs] Loading topic '%s': %s", e.topic, dataJson.c_str());
+    LOG_TRACE_F("[ModelBase] About to call e.applyUpdate for topic '%s'", e.topic);
+    bool result = e.applyUpdate(e.objPtr, dataJson, false);
+    LOG_TRACE_F("[ModelBase] applyUpdate completed for topic '%s', result=%s", e.topic, result ? "true" : "false");
+    return result;
   }
 
   void loadOrInitAll() {
@@ -234,20 +269,31 @@ private:
 
   template <typename T>
   static bool applyUpdateImpl(void* objPtr, const String& dataJson, bool strict) {
+    LOG_TRACE_F("[ModelBase::applyUpdateImpl] Parsing JSON: %s", dataJson.c_str());
     T& obj = *(T*)objPtr;
 
     StaticJsonDocument<JSON_CAPACITY> doc;
-    if (deserializeJson(doc, dataJson))
+    if (deserializeJson(doc, dataJson)) {
+      LOG_WARN_F("[ModelBase::applyUpdateImpl] JSON parse failed");
       return false;
+    }
 
+    LOG_TRACE_F("[ModelBase::applyUpdateImpl] JSON parsed successfully, calling TypeAdapter<T>::read");
     JsonObject root = doc.as<JsonObject>();
-    return fj::TypeAdapter<T>::read(obj, root, strict);
+    bool result = fj::TypeAdapter<T>::read(obj, root, strict);
+    LOG_TRACE_F("[ModelBase::applyUpdateImpl] TypeAdapter<T>::read returned: %s", result ? "true" : "false");
+    return result;
   }
 
   void onWsEvent(AsyncWebSocket*, AsyncWebSocketClient* client,
                  AwsEventType type, void* arg, uint8_t* data, size_t len) {
     if (type == WS_EVT_CONNECT) {
+      LOG_TRACE_F("[WS] Client connected (id=%u), sending initial state", client->id());
       broadcastAll();
+      return;
+    }
+    if (type == WS_EVT_DISCONNECT) {
+      LOG_TRACE_F("[WS] Client disconnected (id=%u)", client->id());
       return;
     }
     if (type != WS_EVT_DATA) return;
@@ -265,37 +311,51 @@ private:
   }
 
   void handleIncoming(AsyncWebSocketClient* client, const String& msg) {
+    LOG_DEBUG_F("[WS] Incoming message: %.100s", msg.c_str());
+    
     StaticJsonDocument<JSON_CAPACITY> doc;
     if (deserializeJson(doc, msg)) {
+      LOG_WARN("[WS] JSON deserialize failed");
       client->text(R"({"ok":false,"error":"invalid_json"})");
       return;
     }
 
     const char* topic = doc["topic"];
     JsonVariant data = doc["data"];
+    LOG_DEBUG_F("[WS] Parsed topic: %s", topic ? topic : "null");
+    
     if (!topic || !data.is<JsonObject>()) {
+      LOG_WARN("[WS] Missing topic or data is not object");
       client->text(R"({"ok":false,"error":"missing_topic_or_data"})");
       return;
     }
 
     Entry* e = find(topic);
     if (!e) {
+      LOG_WARN_F("[WS] Unknown topic: %s", topic);
       client->text(R"({"ok":false,"error":"unknown_topic"})");
       return;
     }
 
+    LOG_INFO_F("[WS] Applying update for topic: %s", topic);
     String dataStr;
     serializeJson(data, dataStr);
+    LOG_TRACE_F("[WS] Data from WebSocket: %s", dataStr.c_str());
 
     bool ok = e->applyUpdate(e->objPtr, dataStr, false);
     if (!ok) {
+      LOG_WARN_F("[WS] applyUpdate failed for topic: %s", topic);
       client->text(R"({"ok":false,"error":"apply_failed"})");
       return;
     }
 
+    LOG_INFO_F("[WS] Update successful, saving topic: %s", topic);
+    LOG_TRACE_F("[WS] Persisting changes to Preferences for: %s", topic);
     saveEntry(*e);
+    LOG_TRACE("[WS] Preferences saved, calling on_update callback");
     on_update(topic);
 
+    LOG_TRACE("[WS] Sending confirmation back to client");
     client->text(R"({"ok":true})");
     broadcastTopic(topic);
   }

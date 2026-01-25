@@ -10,14 +10,27 @@ struct TypeAdapter {
   static bool defaultWsSend()  { return true; }
 
   static void write(const T& obj, JsonObject out) {
+    LOG_TRACE_F("[TypeAdapter::write] Calling writeFields for %s", __PRETTY_FUNCTION__);
     writeFields(obj, T::schema(), out);
   }
 
+  // Prefs-specific writer: must use Prefs-dispatch (writeFieldsPrefs)
+  static void write_prefs(const T& obj, JsonObject out) {
+    LOG_TRACE_F("[TypeAdapter::write_prefs] Calling writeFieldsPrefs for %s", __PRETTY_FUNCTION__);
+    writeFieldsPrefs(obj, T::schema(), out);
+  }
+
   static bool read(T& obj, JsonObject in, bool strict) {
-    return strict ? readFieldsStrict(obj, T::schema(), in)
+    LOG_TRACE_F("[TypeAdapter::read] Starting for %s, strict=%s", __PRETTY_FUNCTION__, strict ? "true" : "false");
+    bool result = strict ? readFieldsStrict(obj, T::schema(), in)
                   : readFieldsTolerant(obj, T::schema(), in);
+    LOG_TRACE_F("[TypeAdapter::read] Completed, result=%s", result ? "true" : "false");
+    return result;
   }
 };
+
+// Note: Primitive type specializations (int, float, bool, StringBuffer<N>)
+// are now defined in ModelTypePrimitive.h to avoid duplicate definitions
 
 // -------- SFINAE: detect write_ws / write_prefs --------
 

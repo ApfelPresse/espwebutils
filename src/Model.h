@@ -4,7 +4,7 @@
 
 #include "model/ModelBase.h"
 #include "model/ModelTypeButton.h"
-#include "model/ModelTypeStaticString.h"
+#include "model/ModelTypePrimitive.h"
 #include "model/ModelTypeList.h"
 #include "model/ModelTypePointRingBuffer.h"
 #include "model/ModelVar.h"
@@ -16,25 +16,31 @@ struct WifiSettings
   static const int MAX_NETWORKS = 20;
 
   // WS: value, Prefs: on, writable: on
-  fj::VarWsPrefsRw<StaticString<SSID_LEN>> ssid;
+  fj::VarWsPrefsRw<StringBuffer<SSID_LEN>> ssid;
 
   // Variant A: WS meta only (never leak), Prefs: on, writable: on
-  fj::VarMetaPrefsRw<StaticString<PASS_LEN>> pass;
+  fj::VarMetaPrefsRw<StringBuffer<PASS_LEN>> pass;
 
-  // Available networks (direct List, not in Var)
-  // Managed programmatically, not persisted or user-writable
-  List<StaticString<SSID_LEN>, MAX_NETWORKS> available_networks;
+  // Available networks (WS: value, Prefs: off, read-only)
+  fj::VarWsRo<List<StringBuffer<SSID_LEN>, MAX_NETWORKS>> available_networks;
+
+  // Log level (WS: value, Prefs: off, read-only) - values: TRACE=0, DEBUG=1, INFO=2, WARN=3, ERROR=4
+  fj::VarWsRo<int> log_level;
 
   typedef fj::Schema<WifiSettings,
                      fj::Field<WifiSettings, decltype(ssid)>,
-                     fj::Field<WifiSettings, decltype(pass)>>
+                     fj::Field<WifiSettings, decltype(pass)>,
+                     fj::Field<WifiSettings, decltype(available_networks)>,
+                     fj::Field<WifiSettings, decltype(log_level)>>
       SchemaType;
 
   static const SchemaType &schema()
   {
     static const SchemaType s = fj::makeSchema<WifiSettings>(
         fj::Field<WifiSettings, decltype(ssid)>{"ssid", &WifiSettings::ssid},
-        fj::Field<WifiSettings, decltype(pass)>{"pass", &WifiSettings::pass});
+        fj::Field<WifiSettings, decltype(pass)>{"pass", &WifiSettings::pass},
+        fj::Field<WifiSettings, decltype(available_networks)>{"available_networks", &WifiSettings::available_networks},
+        fj::Field<WifiSettings, decltype(log_level)>{"log_level", &WifiSettings::log_level});
     return s;
   }
 
@@ -68,7 +74,7 @@ struct OTASettings
 {
   static const int PASS_LEN = 32;
 
-  fj::VarMetaPrefsRw<StaticString<PASS_LEN>> ota_pass;
+  fj::VarMetaPrefsRw<StringBuffer<PASS_LEN>> ota_pass;
 
   typedef fj::Schema<OTASettings,
                      fj::Field<OTASettings, decltype(ota_pass)>>
@@ -93,11 +99,14 @@ public:
   MDNSSettings mdns;
   OTASettings ota;
 
+  // Callback for when WiFi settings are updated
+  std::function<void()> onWifiUpdate = nullptr;
+
   struct AdminSettings {
     static const int PASS_LEN = 32;
     static const int SESSION_LEN = 64;
-    fj::VarMetaPrefsRw<StaticString<PASS_LEN>> pass;
-    fj::VarWsPrefsRw<StaticString<SESSION_LEN>> session;
+    fj::VarMetaPrefsRw<StringBuffer<PASS_LEN>> pass;
+    fj::VarWsPrefsRw<StringBuffer<SESSION_LEN>> session;
 
     typedef fj::Schema<AdminSettings,
                        fj::Field<AdminSettings, decltype(pass)>,
@@ -118,7 +127,7 @@ public:
 
   struct AdminUiSettings {
     static const int CFG_LEN = 512;
-    fj::VarWsPrefsRw<StaticString<CFG_LEN>> config;
+    fj::VarWsPrefsRw<StringBuffer<CFG_LEN>> config;
 
     typedef fj::Schema<AdminUiSettings,
                        fj::Field<AdminUiSettings, decltype(config)>> SchemaType;
@@ -155,6 +164,9 @@ public:
     // temperature_1.setTimeProvider(&time_now_ms, &time_is_synced, nullptr);
     // temperature_1.setCallback(&ModelBase::graphPushCbXY, this);
 
+    // Initialize log_level to INFO (2) by default
+    wifi.log_level = 0;
+
     // registerTopic("person", person_);
     registerTopic("wifi", wifi);
     registerTopic("ota", ota);
@@ -174,8 +186,29 @@ public:
 protected:
   void on_update(const char *topic) override
   {
-    Serial.print("Model updated: ");
-    Serial.println(topic);
+    LOG_TRACE_F("[Model] Model update notified for topic: %s", topic);
+    
+    if (strcmp(topic, "wifi") == 0) {
+      LOG_INFO_F("[WiFi] SSID updated to: %s", wifi.ssid.get().c_str());
+      LOG_DEBUG("[WiFi] Password field received (value not logged for security)");
+      // DEBUG: Print password only at TRACE level for troubleshooting
+      const char* pass = wifi.pass.get().c_str();
+      LOG_TRACE_F("[WiFi] Password value: '%s'  <<< TRACE DEBUG ONLY (LENGTH: %d)", pass, strlen(pass));
+      LOG_TRACE("[WiFi] Triggering reconnect with new credentials");
+      if (onWifiUpdate) {
+        LOG_TRACE("[WiFi] Calling WiFi update callback");
+        onWifiUpdate();
+      }
+    }
+    else if (strcmp(topic, "ota") == 0) {
+      LOG_DEBUG("[OTA] OTA settings updated");
+    }
+    else if (strcmp(topic, "admin") == 0) {
+      LOG_DEBUG("[Admin] Admin settings updated");
+    }
+    else if (strcmp(topic, "mdns") == 0) {
+      LOG_DEBUG("[mDNS] mDNS settings updated");
+    }
   }
 
 private:
