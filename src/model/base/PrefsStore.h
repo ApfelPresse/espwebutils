@@ -15,9 +15,9 @@ inline bool ModelBase::saveEntry(Entry& e) {
   }
   LOG_TRACE_F("[Prefs] saveEntry starting for topic '%s'", e.topic);
   String dataJson = makeDataOnlyJson(e);
-  LOG_INFO_F("[Prefs] Saving topic '%s': %s", e.topic, dataJson.c_str());
+  LOG_TRACE_F("[Prefs] Saving topic '%s': %s", e.topic, dataJson.c_str());
   size_t written = prefs_.putString(e.topic, dataJson);
-  LOG_INFO_F("[Prefs] Written %u bytes for topic '%s'", written, e.topic);
+  LOG_DEBUG_F("[Prefs] Written %u bytes for topic '%s'", written, e.topic);
   if (written == 0) {
     LOG_WARN_F("[Prefs] FAILED to write topic '%s' - putString returned 0", e.topic);
   }

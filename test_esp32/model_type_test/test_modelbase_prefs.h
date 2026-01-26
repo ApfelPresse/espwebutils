@@ -81,7 +81,7 @@ void test_begin_initializes_missing_prefs_key() {
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, saved);
   CUSTOM_ASSERT(!err, "Saved JSON should parse");
-  CUSTOM_ASSERT(doc["counter"].as<int>() == 123, "Saved counter should match initial value");
+  CUSTOM_ASSERT(doc["counter"]["value"].as<int>() == 123, "Saved counter should match initial value");
 
   TEST_END();
 }
@@ -151,7 +151,7 @@ void test_setSaveCallback_auto_persists_on_change() {
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, saved);
   CUSTOM_ASSERT(!err, "Saved JSON should parse");
-  CUSTOM_ASSERT(doc["counter"].as<int>() == 42, "Auto-persisted counter should update to 42");
+  CUSTOM_ASSERT(doc["counter"]["value"].as<int>() == 42, "Auto-persisted counter should update to 42");
 
   TEST_END();
 }
@@ -179,7 +179,7 @@ void test_without_setSaveCallback_does_not_auto_persist() {
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, saved);
   CUSTOM_ASSERT(!err, "Saved JSON should parse");
-  CUSTOM_ASSERT(doc["counter"].as<int>() == 10, "Counter should still be 10 until saveTopic() is called");
+  CUSTOM_ASSERT(doc["counter"]["value"].as<int>() == 10, "Counter should still be 10 until saveTopic() is called");
 
   bool ok = model.saveTopic("manualsave");
   CUSTOM_ASSERT(ok, "saveTopic should succeed");
@@ -191,19 +191,19 @@ void test_without_setSaveCallback_does_not_auto_persist() {
   doc.clear();
   err = deserializeJson(doc, saved2);
   CUSTOM_ASSERT(!err, "Saved JSON should parse after manual save");
-  CUSTOM_ASSERT(doc["counter"].as<int>() == 11, "Counter should be 11 after saveTopic()");
+  CUSTOM_ASSERT(doc["counter"]["value"].as<int>() == 11, "Counter should be 11 after saveTopic()");
 
   TEST_END();
 }
 
 void runAllTests() {
-  Serial.println("\n===== MODELBASE PREFS TESTS =====\n");
+  SUITE_START("MODELBASE PREFS");
   test_begin_initializes_missing_prefs_key();
   test_non_persistent_topic_is_not_saved();
   test_saveTopic_unknown_returns_false();
   test_setSaveCallback_auto_persists_on_change();
   test_without_setSaveCallback_does_not_auto_persist();
-  Serial.println("\n===== MODELBASE PREFS TESTS COMPLETE =====\n");
+  SUITE_END("MODELBASE PREFS");
 }
 
 } // namespace ModelBasePrefsTest

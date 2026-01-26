@@ -55,7 +55,7 @@ void testStaticStringPersistence() {
   
   String json;
   serializeJson(root, json);
-  Serial.println("Serialized: " + json);
+  TEST_DEBUG(String("Serialized: ") + json);
   
   // Save to preferences
   prefs.begin(TEST_NS, false);
@@ -74,46 +74,28 @@ void testStaticStringPersistence() {
   StaticJsonDocument<512> loadedDoc;
   DeserializationError err = deserializeJson(loadedDoc, loadedJson);
   if (err) {
-    Serial.print("JSON parse error: ");
-    Serial.println(err.c_str());
+    LOG_WARN_F("JSON parse error: %s", err.c_str());
   }
   JsonObject loadedRoot = loadedDoc.as<JsonObject>();
   
-  Serial.print("JSON to deserialize: ");
-  Serial.println(loadedJson);
-  Serial.print("JSON has 'name': ");
-  Serial.println(loadedRoot.containsKey("name") ? "YES" : "NO");
-  Serial.print("JSON has 'password': ");
-  Serial.println(loadedRoot.containsKey("password") ? "YES" : "NO");
+  TEST_TRACE_F("JSON to deserialize: %s", loadedJson.c_str());
+  TEST_TRACE_F("JSON has 'name': %s", loadedRoot.containsKey("name") ? "yes" : "no");
+  TEST_TRACE_F("JSON has 'password': %s", loadedRoot.containsKey("password") ? "yes" : "no");
   if (loadedRoot.containsKey("name")) {
-    Serial.print("  name value in JSON: '");
-    Serial.print(loadedRoot["name"].as<const char*>());
-    Serial.println("'");
+    TEST_TRACE_F("name value in JSON: '%s'", loadedRoot["name"].as<const char*>());
   }
   if (loadedRoot.containsKey("password")) {
-    Serial.print("  password value in JSON: '");
-    Serial.print(loadedRoot["password"].as<const char*>());
-    Serial.println("'");
+    TEST_TRACE_F("password value in JSON: '%s'", loadedRoot["password"].as<const char*>());
   }
   
-  Serial.println("Before readFieldsTolerant:");
-  Serial.print("  loadedSettings.name = '");
-  Serial.print(loadedSettings.name.get().c_str());
-  Serial.println("'");
-  Serial.print("  loadedSettings.password = '");
-  Serial.print(loadedSettings.password.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("Before readFieldsTolerant: name='%s'", loadedSettings.name.get().c_str());
+  TEST_TRACE_F("Before readFieldsTolerant: password='%s'", loadedSettings.password.get().c_str());
   
   bool readSuccess = fj::readFieldsTolerant(loadedSettings, TestSettings::schema(), loadedRoot);
   CUSTOM_ASSERT(readSuccess, "Reading should succeed");
   
-  Serial.println("After readFieldsTolerant:");
-  Serial.print("  loadedSettings.name = '");
-  Serial.print(loadedSettings.name.get().c_str());
-  Serial.println("'");
-  Serial.print("  loadedSettings.password = '");
-  Serial.print(loadedSettings.password.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("After readFieldsTolerant: name='%s'", loadedSettings.name.get().c_str());
+  TEST_TRACE_F("After readFieldsTolerant: password='%s'", loadedSettings.password.get().c_str());
   
   // Verify loaded values
   CUSTOM_ASSERT(strcmp(loadedSettings.name.get().c_str(), "TestUser") == 0, "Loaded name should match");
@@ -178,7 +160,7 @@ void testSecretNeverLeaks() {
   
   String json;
   serializeJson(root, json);
-  Serial.println("WS Serialized: " + json);
+  TEST_DEBUG(String("WS Serialized: ") + json);
   
   // Check that password value is NOT in JSON
   CUSTOM_ASSERT(json.indexOf("SuperSecret") == -1, "Secret value should NOT appear in WS output");
@@ -191,7 +173,7 @@ void testSecretNeverLeaks() {
   
   String jsonPrefs;
   serializeJson(rootPrefs, jsonPrefs);
-  Serial.println("Prefs Serialized: " + jsonPrefs);
+  TEST_DEBUG(String("Prefs Serialized: ") + jsonPrefs);
   
   // Check that password value IS in Prefs JSON
   CUSTOM_ASSERT(jsonPrefs.indexOf("SuperSecret") > 0, "Secret value SHOULD appear in Prefs output");
@@ -200,14 +182,14 @@ void testSecretNeverLeaks() {
 }
 
 void runAllTests() {
-  Serial.println("\n===== MODEL TYPE TESTS =====\n");
+  SUITE_START("MODEL TYPE");
   
   testStaticStringPersistence();
   testVarImplicitConversion();
   testVarAssignment();
   testSecretNeverLeaks();
   
-  Serial.println("\n===== MODEL TYPE TESTS COMPLETE =====\n");
+  SUITE_END("MODEL TYPE");
 }
 
 } // namespace ModelTypeTest

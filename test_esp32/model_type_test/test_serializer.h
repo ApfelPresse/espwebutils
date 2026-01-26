@@ -86,7 +86,7 @@ void testStrictVsTolerantMissingKey() {
   obj.b = 2;
 
   // Missing 'b'
-  const char* jsonStr = R"({\"a\":10})";
+  const char* jsonStr = R"({"a":10})";
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, jsonStr);
   CUSTOM_ASSERT(!err, "JSON parse should succeed");
@@ -116,7 +116,7 @@ void testStrictIgnoresExtraKeys() {
   obj.a = 1;
   obj.b = 2;
 
-  const char* jsonStr = R"({\"a\":3,\"b\":4,\"extra\":999})";
+  const char* jsonStr = R"({"a":3,"b":4,"extra":999})";
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, jsonStr);
   CUSTOM_ASSERT(!err, "JSON parse should succeed");
@@ -143,8 +143,7 @@ void testDirectFieldsSerialization() {
   
   String json;
   serializeJson(root, json);
-  Serial.print("Direct fields JSON: ");
-  Serial.println(json);
+  TEST_DEBUG(String("Direct fields JSON: ") + json);
   
   CUSTOM_ASSERT(json.indexOf("TestUser") > 0, "Should contain TestUser");
   CUSTOM_ASSERT(json.indexOf("TestPassword") > 0, "Should contain TestPassword");
@@ -157,12 +156,8 @@ void testDirectFieldsSerialization() {
   bool success = fj::readFieldsTolerant(loaded, DirectFields::schema(), loadDoc.as<JsonObject>());
   CUSTOM_ASSERT(success, "readFieldsTolerant should succeed");
   
-  Serial.print("Loaded name: '");
-  Serial.print(loaded.name.c_str());
-  Serial.println("'");
-  Serial.print("Loaded password: '");
-  Serial.print(loaded.password.c_str());
-  Serial.println("'");
+  TEST_TRACE_F("Loaded name: '%s'", loaded.name.c_str());
+  TEST_TRACE_F("Loaded password: '%s'", loaded.password.c_str());
   
   CUSTOM_ASSERT(strcmp(loaded.name.c_str(), "TestUser") == 0, "Loaded name should match");
   CUSTOM_ASSERT(strcmp(loaded.password.c_str(), "TestPassword") == 0, "Loaded password should match");
@@ -184,8 +179,7 @@ void testVarFieldsWrite() {
   
   String json;
   serializeJson(root, json);
-  Serial.print("Var fields Prefs JSON: ");
-  Serial.println(json);
+  TEST_DEBUG(String("Var fields Prefs JSON: ") + json);
   
   CUSTOM_ASSERT(json.indexOf("VarUser") > 0, "Should contain VarUser");
   CUSTOM_ASSERT(json.indexOf("VarPassword") > 0, "Should contain VarPassword");
@@ -200,27 +194,19 @@ void testVarFieldsRead() {
   
   VarFields obj;
   
-  Serial.print("Before read - name: '");
-  Serial.print(obj.name.get().c_str());
-  Serial.println("'");
-  Serial.print("Before read - password: '");
-  Serial.print(obj.password.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("Before read - name: '%s'", obj.name.get().c_str());
+  TEST_TRACE_F("Before read - password: '%s'", obj.password.get().c_str());
   
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, testJson);
   CUSTOM_ASSERT(!err, "JSON parse should succeed");
   
-  Serial.println("Calling readFieldsTolerant...");
+  TEST_TRACE("Calling readFieldsTolerant...");
   bool success = fj::readFieldsTolerant(obj, VarFields::schema(), doc.as<JsonObject>());
   CUSTOM_ASSERT(success, "readFieldsTolerant should succeed");
   
-  Serial.print("After read - name: '");
-  Serial.print(obj.name.get().c_str());
-  Serial.println("'");
-  Serial.print("After read - password: '");
-  Serial.print(obj.password.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("After read - name: '%s'", obj.name.get().c_str());
+  TEST_TRACE_F("After read - password: '%s'", obj.password.get().c_str());
   
   CUSTOM_ASSERT(strcmp(obj.name.get().c_str(), "LoadedUser") == 0, "Name should be LoadedUser");
   CUSTOM_ASSERT(strcmp(obj.password.get().c_str(), "LoadedPassword") == 0, "Password should be LoadedPassword");
@@ -242,8 +228,7 @@ void testVarFieldsRoundtrip() {
   
   String json;
   serializeJson(root, json);
-  Serial.print("Roundtrip JSON: ");
-  Serial.println(json);
+  TEST_DEBUG(String("Roundtrip JSON: ") + json);
   
   // Read
   VarFields loaded;
@@ -253,12 +238,8 @@ void testVarFieldsRoundtrip() {
   bool success = fj::readFieldsTolerant(loaded, VarFields::schema(), loadDoc.as<JsonObject>());
   CUSTOM_ASSERT(success, "Read should succeed");
   
-  Serial.print("Roundtrip loaded name: '");
-  Serial.print(loaded.name.get().c_str());
-  Serial.println("'");
-  Serial.print("Roundtrip loaded password: '");
-  Serial.print(loaded.password.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("Roundtrip loaded name: '%s'", loaded.name.get().c_str());
+  TEST_TRACE_F("Roundtrip loaded password: '%s'", loaded.password.get().c_str());
   
   CUSTOM_ASSERT(strcmp(loaded.name.get().c_str(), "RoundtripUser") == 0, "Name should match after roundtrip");
   CUSTOM_ASSERT(strcmp(loaded.password.get().c_str(), "RoundtripPassword") == 0, "Password should match after roundtrip");
@@ -279,7 +260,7 @@ void testTypeAdapterWritePrefsUsesPrefsPath() {
   JsonObject wsRoot = wsDoc.to<JsonObject>();
   fj::write_ws(obj, wsRoot);
   String wsJson; serializeJson(wsRoot, wsJson);
-  Serial.print("WS JSON: "); Serial.println(wsJson);
+  TEST_DEBUG(String("WS JSON: ") + wsJson);
   CUSTOM_ASSERT(wsJson.indexOf("SuperSecret123") < 0, "WS MUST NOT contain secret value");
   CUSTOM_ASSERT(wsJson.indexOf("\"type\":\"secret\"") > 0, "WS should contain meta type");
 
@@ -288,7 +269,7 @@ void testTypeAdapterWritePrefsUsesPrefsPath() {
   JsonObject prefsRoot = prefsDoc.to<JsonObject>();
   fj::write_prefs(obj, prefsRoot);
   String prefsJson; serializeJson(prefsRoot, prefsJson);
-  Serial.print("Prefs JSON: "); Serial.println(prefsJson);
+  TEST_DEBUG(String("Prefs JSON: ") + prefsJson);
   CUSTOM_ASSERT(prefsJson.indexOf("SuperSecret123") > 0, "Prefs MUST contain secret value");
   CUSTOM_ASSERT(prefsJson.indexOf("\"type\":\"secret\"") < 0, "Prefs should NOT be meta-only");
 
@@ -310,10 +291,8 @@ void testIsVarTrait() {
   bool isVarStaticString = fj::detail::is_var<StringBuffer<32>>::value;
   bool isVarWrapped = fj::detail::is_var<fj::VarWsPrefsRw<StringBuffer<32>>>::value;
   
-  Serial.print("is_var<StringBuffer<32>>: ");
-  Serial.println(isVarStaticString ? "TRUE" : "FALSE");
-  Serial.print("is_var<VarWsPrefsRw<StringBuffer<32>>>: ");
-  Serial.println(isVarWrapped ? "TRUE" : "FALSE");
+  TEST_TRACE_F("is_var<StringBuffer<32>>: %s", isVarStaticString ? "true" : "false");
+  TEST_TRACE_F("is_var<VarWsPrefsRw<StringBuffer<32>>>: %s", isVarWrapped ? "true" : "false");
   
   CUSTOM_ASSERT(!isVarStaticString, "StaticString should NOT be detected as Var");
   CUSTOM_ASSERT(isVarWrapped, "VarWsPrefsRw should be detected as Var");
@@ -326,37 +305,29 @@ void testVarDirectAssignment() {
   
   fj::VarWsPrefsRw<StringBuffer<32>> var;
   
-  Serial.print("Before: '");
-  Serial.print(var.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("Before: '%s'", var.get().c_str());
   
   // Test 1: Direct assignment via operator=
   var = "DirectAssign";
-  Serial.print("After var='DirectAssign': '");
-  Serial.print(var.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("After var='DirectAssign': '%s'", var.get().c_str());
   CUSTOM_ASSERT(strcmp(var.get().c_str(), "DirectAssign") == 0, "Direct assignment should work");
   
   // Test 2: Assignment via set()
   var.set(StringBuffer<32>("ViaSet"));
-  Serial.print("After var.set(): '");
-  Serial.print(var.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("After var.set(): '%s'", var.get().c_str());
   CUSTOM_ASSERT(strcmp(var.get().c_str(), "ViaSet") == 0, "set() should work");
   
   // Test 3: Get non-const reference and modify
   StringBuffer<32>& ref = var.get();
   ref.set("ViaRef");
-  Serial.print("After ref.set('ViaRef'): '");
-  Serial.print(var.get().c_str());
-  Serial.println("'");
+  TEST_TRACE_F("After ref.set('ViaRef'): '%s'", var.get().c_str());
   CUSTOM_ASSERT(strcmp(var.get().c_str(), "ViaRef") == 0, "Modifying via non-const get() should work");
   
   TEST_END();
 }
 
 void runAllTests() {
-  Serial.println("\n===== SERIALIZER TESTS =====\n");
+  SUITE_START("SERIALIZER");
   testIsVarTrait();
   testVarDirectAssignment();
   testDirectFieldsSerialization();
@@ -366,7 +337,7 @@ void runAllTests() {
   testTypeAdapterWritePrefsUsesPrefsPath();
   testStrictVsTolerantMissingKey();
   testStrictIgnoresExtraKeys();
-  Serial.println("\n===== SERIALIZER TESTS COMPLETE =====\n");
+  SUITE_END("SERIALIZER");
 }
 
 } // namespace SerializerTest

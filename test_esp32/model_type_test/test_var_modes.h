@@ -94,7 +94,7 @@ void testVarWsRo() {
   
   String json;
   serializeJson(root, json);
-  Serial.println("VarWsRo WS: " + json);
+  TEST_DEBUG(String("VarWsRo WS: ") + json);
   CUSTOM_ASSERT(json.indexOf("200") > 0, "WS should include value");
   
   // Try to deserialize (should be tolerated because using tolerant mode)
@@ -122,7 +122,7 @@ void testVarMetaPrefsRw() {
   
   String json;
   serializeJson(root, json);
-  Serial.println("VarMetaPrefsRw WS: " + json);
+  TEST_DEBUG(String("VarMetaPrefsRw WS: ") + json);
   
   CUSTOM_ASSERT(json.indexOf("SecretPassword123") == -1, "WS should NOT leak secret value");
   CUSTOM_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "WS should include meta type");
@@ -135,7 +135,7 @@ void testVarMetaPrefsRw() {
   
   String jsonPrefs;
   serializeJson(rootPrefs, jsonPrefs);
-  Serial.println("VarMetaPrefsRw Prefs: " + jsonPrefs);
+  TEST_DEBUG(String("VarMetaPrefsRw Prefs: ") + jsonPrefs);
   
   CUSTOM_ASSERT(jsonPrefs.indexOf("SecretPassword123") > 0, "Prefs SHOULD include secret value");
   
@@ -155,7 +155,7 @@ void testVarMetaRw() {
   
   String json;
   serializeJson(root, json);
-  Serial.println("VarMetaRw WS: " + json);
+  TEST_DEBUG(String("VarMetaRw WS: ") + json);
   
   CUSTOM_ASSERT(json.indexOf("1234") == -1, "WS should NOT leak secret PIN");
   CUSTOM_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "WS should include meta type");
@@ -167,7 +167,7 @@ void testVarMetaRw() {
   
   String jsonPrefs;
   serializeJson(rootPrefs, jsonPrefs);
-  Serial.println("VarMetaRw Prefs: " + jsonPrefs);
+  TEST_DEBUG(String("VarMetaRw Prefs: ") + jsonPrefs);
   
   CUSTOM_ASSERT(jsonPrefs.indexOf("secretPin") == -1, "Prefs should NOT include non-persistent field");
   
@@ -192,7 +192,7 @@ void testPrefsFiltering() {
   
   String json;
   serializeJson(root, json);
-  Serial.println("Prefs JSON: " + json);
+  TEST_DEBUG(String("Prefs JSON: ") + json);
   
   // Check what's included
   CUSTOM_ASSERT(json.indexOf("Device1") > 0, "name (PrefsRw) should be in Prefs");
@@ -283,7 +283,7 @@ void testVarMetaPrefsRwRoundtrip() {
   
   String jsonSaved;
   serializeJson(rootSave, jsonSaved);
-  Serial.println("Saved to Prefs: " + jsonSaved);
+  TEST_DEBUG(String("Saved to Prefs: ") + jsonSaved);
   
   // CRITICAL: Verify the password VALUE is in the saved JSON
   CUSTOM_ASSERT(jsonSaved.indexOf("MySecretPassword123") > 0, 
@@ -299,7 +299,7 @@ void testVarMetaPrefsRwRoundtrip() {
   CUSTOM_ASSERT(strcmp(settings2.password.c_str(), "MySecretPassword123") == 0, 
               "Password should be restored correctly");
   
-  Serial.println("Loaded password: " + String(settings2.password.c_str()));
+  TEST_TRACE_F("Loaded password: %s", settings2.password.c_str());
   
   // Additional check: Verify WebSocket serialization is different (should NOT have value, only meta)
   StaticJsonDocument<512> docWs;
@@ -308,7 +308,7 @@ void testVarMetaPrefsRwRoundtrip() {
   
   String jsonWs;
   serializeJson(rootWs, jsonWs);
-  Serial.println("WS serialized: " + jsonWs);
+  TEST_DEBUG(String("WS serialized: ") + jsonWs);
   
   // For VarMetaPrefsRw, WS should NOT include the password value
   CUSTOM_ASSERT(jsonWs.indexOf("MySecretPassword123") == -1,
@@ -320,7 +320,7 @@ void testVarMetaPrefsRwRoundtrip() {
 }
 
 void runAllTests() {
-  Serial.println("\n===== VAR MODES TESTS =====\n");
+  SUITE_START("VAR MODES");
   
   testVarWsPrefsRw();
   testVarWsRo();
@@ -331,7 +331,7 @@ void runAllTests() {
   testVarOnChange();
   testVarMetaPrefsRwRoundtrip();  // NEW: Would have caught the bug!
   
-  Serial.println("\n===== VAR MODES TESTS COMPLETE =====\n");
+  SUITE_END("VAR MODES");
 }
 
 } // namespace VarModesTest

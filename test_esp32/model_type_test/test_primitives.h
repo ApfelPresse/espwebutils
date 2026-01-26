@@ -387,7 +387,7 @@ void testVarDeserializationTriggersCallback() {
 // ============================================================================
 
 void testPrimitiveTypesAll() {
-  Serial.println("\n=== Testing Primitive Types ===");
+  SUITE_START("PRIMITIVE TYPES");
 
   testStringBasic();
   testStringTruncation();
@@ -403,7 +403,7 @@ void testPrimitiveTypesAll() {
   testFloatWithVarMetaPrefsRw();
   testBoolWithVarPrefsRw();
 
-  Serial.println("\n--- Callback Tests ---");
+  TEST_DEBUG("--- Callback tests ---");
   testVarStringBufferCallback();
   testVarIntCallback();
   testVarFloatCallback();
@@ -411,5 +411,5 @@ void testPrimitiveTypesAll() {
   testSettingsStructCallbackIntegration();
   testVarDeserializationTriggersCallback();
 
-  Serial.println("=== Primitive Types Tests Complete ===\n");
+  SUITE_END("PRIMITIVE TYPES");
 }

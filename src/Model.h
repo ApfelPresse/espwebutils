@@ -185,7 +185,7 @@ public:
     if (!adminPw || adminPw[0] == '\0') {
       String newPw = generatePassword(12);
       admin.pass.set(newPw.c_str());
-      LOG_INFO_F("[Model] Generated admin password: %s", newPw.c_str());
+      LOG_DEBUG("[Model] Generated admin password");
       changed = true;
     } else {
       LOG_TRACE_F("[Model] Admin password already set: %s", adminPw);
@@ -196,7 +196,7 @@ public:
     if (!otaPw || otaPw[0] == '\0') {
       String newPw = generatePassword(12);
       ota.ota_pass.set(newPw.c_str());
-      LOG_INFO_F("[Model] Generated OTA password: %s", newPw.c_str());
+      LOG_DEBUG("[Model] Generated OTA password");
       changed = true;
     } else {
       LOG_TRACE_F("[Model] OTA password already set: %s", otaPw);
@@ -280,20 +280,20 @@ protected:
 
   // Handler for OTA password generation button
   void onGenerateNewOtaPassword() {
-    LOG_INFO("[OTA] Generating new OTA password...");
+    LOG_DEBUG("[OTA] Generating new OTA password...");
     String newPw = generatePassword(12);
     ota.ota_pass.set(newPw.c_str());
-    LOG_INFO_F("[OTA] Generated new OTA password: %s", newPw.c_str());
+    LOG_DEBUG("[OTA] Generated new OTA password");
     saveTopic("ota");
     broadcastTopic("ota");
   }
 
   // Handler for Admin UI password generation button
   void onGenerateNewAdminUiPassword() {
-    LOG_INFO("[Admin] Generating new Admin UI password (basic auth)...");
+    LOG_DEBUG("[Admin] Generating new Admin UI password (basic auth)...");
     String newPw = generatePassword(12);
     admin.pass.set(newPw.c_str());
-    LOG_INFO_F("[Admin] Generated new Admin UI password: %s", newPw.c_str());
+    LOG_DEBUG("[Admin] Generated new Admin UI password");
     saveTopic("admin");
     broadcastTopic("admin");
   }
@@ -312,7 +312,7 @@ protected:
     
     if (strcmp(topic, "ota") == 0) {
       if (strcmp(button, "generate_new_pass_button") == 0) {
-        LOG_INFO("[OTA] Button trigger: generate_new_pass_button");
+        LOG_DEBUG("[OTA] Button trigger: generate_new_pass_button");
         onGenerateNewOtaPassword();
         if (client) client->text(R"({"ok":true,"action":"button_triggered"})");
         return;
@@ -321,7 +321,7 @@ protected:
 
     if (strcmp(topic, "admin") == 0) {
       if (strcmp(button, "generate_new_admin_ui_pass") == 0) {
-        LOG_INFO("[Admin] Button trigger: generate_new_admin_ui_pass");
+        LOG_DEBUG("[Admin] Button trigger: generate_new_admin_ui_pass");
         onGenerateNewAdminUiPassword();
         if (client) client->text(R"({"ok":true,"action":"button_triggered"})");
         return;

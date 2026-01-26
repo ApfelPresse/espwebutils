@@ -108,7 +108,7 @@ void testListSerialization() {
   
   String json;
   serializeJson(root, json);
-  Serial.println("List JSON: " + json);
+  TEST_DEBUG(String("List JSON: ") + json);
   
   CUSTOM_ASSERT(root["type"] == "list", "Type should be 'list'");
   CUSTOM_ASSERT(root["count"] == 3, "Count should be 3");
@@ -170,7 +170,7 @@ void testListInVar() {
   
   String json;
   serializeJson(root, json);
-  Serial.println("Var<List> JSON: " + json);
+  TEST_DEBUG(String("Var<List> JSON: ") + json);
   
   CUSTOM_ASSERT(nested["items"].size() == 2, "Should have 2 items in JSON");
   
@@ -181,7 +181,7 @@ void testListVarReadArrayShortcut() {
   TEST_START("Var<List> read array shortcut");
 
   struct Wrapper {
-    fj::VarWsRo<List<StringBuffer<32>, 5>> available_networks;
+    fj::VarWsRw<List<StringBuffer<32>, 5>> available_networks;
 
     typedef fj::Schema<Wrapper,
                        fj::Field<Wrapper, decltype(available_networks)>>
@@ -194,8 +194,8 @@ void testListVarReadArrayShortcut() {
     }
   } w;
 
-  // ReadDispatch::read_var_value supports array -> wraps into {items:[...]}
-  const char* jsonStr = R"({\"available_networks\":[\"A\",\"B\"]})";
+  // VarJsonDispatch supports array -> wraps into {items:[...]}
+  const char* jsonStr = R"({"available_networks":["A","B"]})";
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, jsonStr);
   CUSTOM_ASSERT(!err, "JSON parse should succeed");
@@ -210,7 +210,7 @@ void testListVarReadArrayShortcut() {
 }
 
 void runAllTests() {
-  Serial.println("\n===== LIST TESTS =====\n");
+  SUITE_START("LIST");
   
   testListBasics();
   testListIterator();
@@ -220,7 +220,7 @@ void runAllTests() {
   testListInVar();
   testListVarReadArrayShortcut();
   
-  Serial.println("\n===== LIST TESTS COMPLETE =====\n");
+  SUITE_END("LIST");
 }
 
 } // namespace ListTest

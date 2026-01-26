@@ -17,17 +17,17 @@ namespace ButtonSystemTest { void runAllTests(); }
 namespace ModelPasswordTest { void runAllTests(); }
 
 void clearAllPreferences() {
-  Serial.println("[CLEANUP] Clearing all NVS partitions...");
+  LOG_INFO("[CLEANUP] Clearing all NVS partitions...");
   esp_err_t err = nvs_flash_erase();
   if (err == ESP_OK) {
     err = nvs_flash_init();
     if (err == ESP_OK) {
-      Serial.println("[CLEANUP] NVS cleared and reinitialized successfully");
+      LOG_INFO("[CLEANUP] NVS cleared and reinitialized successfully");
     } else {
-      Serial.printf("[CLEANUP] NVS init failed: %d\n", err);
+      LOG_WARN_F("[CLEANUP] NVS init failed: %d", (int)err);
     }
   } else {
-    Serial.printf("[CLEANUP] NVS erase failed: %d\n", err);
+    LOG_WARN_F("[CLEANUP] NVS erase failed: %d", (int)err);
   }
 }
 
@@ -47,10 +47,6 @@ void setup() {
   LOG_INFO("ESP32 Test Suite Starting...");
   LOG_INFO_F("Log Level: %s", Logger::levelToString(Logger::getLevel()));
   LOG_INFO("========================================");
-  
-  Serial.println("\n\n========================================");
-  Serial.println("ESP32 Test Suite Starting...");
-  Serial.println("========================================\n");
 
   // Clear all preferences before tests
   clearAllPreferences();
@@ -76,23 +72,20 @@ void setup() {
   WiFiIntegrationTest::testWiFiModelIntegration();
 
   // Clear all preferences after tests
-  Serial.println("\n[CLEANUP] Final cleanup...");
+  LOG_INFO("[CLEANUP] Final cleanup...");
   clearAllPreferences();
 
-  Serial.println("\n========================================");
-  Serial.print("Tests: ");
-  Serial.print(globalTestStats.passed + globalTestStats.failed);
-  Serial.print(" | Passed: ");
-  Serial.print(globalTestStats.passed);
-  Serial.print(" | Failed: ");
-  Serial.println(globalTestStats.failed);
-  
+  LOG_INFO("========================================");
+  LOG_INFO_F("Tests: %d | Passed: %d | Failed: %d",
+             globalTestStats.passed + globalTestStats.failed,
+             globalTestStats.passed,
+             globalTestStats.failed);
   if (globalTestStats.failed == 0) {
-    Serial.println("✓ ALL TESTS PASSED");
+    LOG_INFO("ALL TESTS PASSED");
   } else {
-    Serial.println("❌ SOME TESTS FAILED");
+    LOG_ERROR("SOME TESTS FAILED");
   }
-  Serial.println("========================================\n");
+  LOG_INFO("========================================");
 }
 
 void loop() {

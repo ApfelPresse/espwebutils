@@ -98,8 +98,7 @@ void testWiFiSettingsPersistence() {
   
   String json;
   serializeJson(root, json);
-  Serial.print("Prefs JSON: ");
-  Serial.println(json);
+  TEST_DEBUG(String("Prefs JSON: ") + json);
   
   CUSTOM_ASSERT(json.indexOf("MyNetwork") > 0, "Preferences should contain SSID");
   CUSTOM_ASSERT(json.indexOf("MyPassword123") > 0, "Preferences should contain password");
@@ -132,8 +131,7 @@ void testWiFiWebSocketSerialization() {
   
   String json;
   serializeJson(root, json);
-  Serial.print("WS JSON: ");
-  Serial.println(json);
+  TEST_DEBUG(String("WS JSON: ") + json);
   
   // SSID should be visible (VarWsPrefsRw)
   CUSTOM_ASSERT(json.indexOf("PublicNetwork") > 0, "SSID should be in WS output");
@@ -211,8 +209,7 @@ void testAvailableNetworksSerialization() {
   
   String json;
   serializeJson(root, json);
-  Serial.print("Networks JSON: ");
-  Serial.println(json);
+  TEST_DEBUG(String("Networks JSON: ") + json);
   
   // Verify the serialized structure contains our networks
   CUSTOM_ASSERT(json.indexOf("WiFi-A") > 0, "Should contain WiFi-A");

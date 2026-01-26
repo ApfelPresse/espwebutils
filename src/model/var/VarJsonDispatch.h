@@ -138,6 +138,33 @@ read_value_from_variant(T& dst, JsonVariant v) {
     return result;
   }
 
+  // Array shortcut for list-like adapters: wrap into {items:[...]}
+  if (v.is<JsonArray>()) {
+    LOG_TRACE("[ModelVar::read_value_from_variant] Variant is JsonArray, wrapping into {items:[...]} and calling TypeAdapter::read");
+    StaticJsonDocument<512> tmp;
+    JsonObject o = tmp.to<JsonObject>();
+
+    JsonArray dstItems = o.createNestedArray("items");
+    JsonArray srcItems = v.as<JsonArray>();
+    for (JsonVariant it : srcItems) {
+      dstItems.add(it);
+    }
+    bool result = fj::TypeAdapter<T>::read(dst, o, false);
+    LOG_TRACE_F("[ModelVar::read_value_from_variant] TypeAdapter::read (items wrapper) returned: %s", result ? "true" : "false");
+    return result;
+  }
+
+  // Scalar shortcut for primitive adapters: wrap into {value:...}
+  LOG_TRACE("[ModelVar::read_value_from_variant] Variant is scalar, wrapping into {value:...} and calling TypeAdapter::read");
+  {
+    StaticJsonDocument<128> tmp;
+    JsonObject o = tmp.to<JsonObject>();
+    o["value"] = v;
+    bool result = fj::TypeAdapter<T>::read(dst, o, false);
+    LOG_TRACE_F("[ModelVar::read_value_from_variant] TypeAdapter::read (value wrapper) returned: %s", result ? "true" : "false");
+    if (result) return true;
+  }
+
   LOG_TRACE("[ModelVar::read_value_from_variant] Variant is not JsonObject, trying string fallback");
   // Fallback: plain string ONLY for string-like types (StaticString), NOT List
   return read_value_from_variant_string_fallback(dst, v, std::integral_constant<bool, is_string_like<T>::value>{});

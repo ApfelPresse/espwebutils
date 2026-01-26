@@ -23,8 +23,7 @@ struct Button {
     if (callback) {
       callback();
     } else {
-      Serial.print("Button triggered (no callback), id=");
-      Serial.println(id);
+      LOG_DEBUG_F("[Button] Triggered without callback, id=%d", id);
     }
   }
 
