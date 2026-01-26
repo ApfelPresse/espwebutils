@@ -18,7 +18,7 @@ public:
 };
 
 struct SettingsTopic {
-  fj::VarWsRw<int> counter;
+  fj::VarWsPrefsRw<int> counter;
 
   typedef fj::Schema<SettingsTopic,
                      fj::Field<SettingsTopic, decltype(counter)>>
