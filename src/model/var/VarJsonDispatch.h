@@ -41,14 +41,6 @@ inline bool assign_from_variant_string(T&, JsonVariant, std::false_type) { retur
 
 // Path for complex types with TypeAdapter
 
-template <typename T>
-inline bool try_typeadapter_read(T& dst, JsonObject o, std::true_type) {
-  return fj::TypeAdapter<T>::read(dst, o, false);
-}
-
-template <typename T>
-inline bool try_typeadapter_read(T&, JsonObject, std::false_type) { return false; }
-
 // ---- Assignment implementation overloads ----
 // Called by assign_() in Var class to convert incoming data to target type.
 

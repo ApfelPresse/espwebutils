@@ -9,6 +9,7 @@
 #include "Schema.h"
 #include "PrefsDispatch.h"
 #include "ReadDispatch.h"
+#include "../var/VarTraits.h"
 
 namespace fj {
 
@@ -31,6 +32,27 @@ struct is_var {
 
   static const bool value = sizeof(test<T>(0)) == sizeof(Yes);
 };
+
+// WS write fallback for Var-like fields.
+// Prefers TypeAdapter<T>::write_ws, then c_str(), then direct assignment.
+template <typename T>
+inline typename std::enable_if<has_typeadapter_write_ws<T>::value, void>::type
+write_ws_value(JsonObject out, const char* key, const T& val) {
+  JsonObject nested = out.createNestedObject(key);
+  fj::TypeAdapter<T>::write_ws(val, nested);
+}
+
+template <typename T>
+inline typename std::enable_if<!has_typeadapter_write_ws<T>::value && has_c_str<T>::value, void>::type
+write_ws_value(JsonObject out, const char* key, const T& val) {
+  out[key] = val.c_str();
+}
+
+template <typename T>
+inline typename std::enable_if<!has_typeadapter_write_ws<T>::value && !has_c_str<T>::value, void>::type
+write_ws_value(JsonObject out, const char* key, const T& val) {
+  out[key] = val;
+}
 } // namespace detail
 
 // Write for non-Var types
@@ -48,7 +70,7 @@ template <typename T, typename VarT>
 inline typename std::enable_if<detail::is_var<VarT>::value, void>::type
 writeOne(const T& obj, const Field<T, VarT>& f, JsonObject out) {
   const VarT& var = obj.*(f.member);
-  var.write_value(out, f.key);
+  detail::write_ws_value(out, f.key, var.get());
 }
 
 template <typename T, size_t N>

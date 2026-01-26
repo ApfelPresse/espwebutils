@@ -35,10 +35,6 @@ public:
 protected:
   virtual void on_update(const char* topic) { (void)topic; }
 
-  void sendGraphPoint(const char* graph, const char* label, int value);
-
-  static void graphPushCb(const char* graph, const char* label, int value, void* ctx);
-
   template <typename T>
   void registerTopic(const char* topic, T& obj);
 
@@ -105,7 +101,7 @@ private:
 // Implementation split into focused headers for readability.
 // Keep this file as the stable public entrypoint.
 
-#include "base/Graphs.h"
+#include "base/GraphWs.h"
 #include "base/Topics.h"
 #include "base/Envelope.h"
 #include "base/PrefsStore.h"

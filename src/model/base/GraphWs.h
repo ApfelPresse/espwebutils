@@ -1,6 +1,7 @@
 #pragma once
 
 // Included by src/model/ModelBase.h
+// WebSocket-side graph publishing helpers (transport/protocol), not the data container.
 
 inline void ModelBase::sendGraphPointXY(const char* graph, const char* label, uint64_t x, float y, bool synced) {
   LOG_DEBUG_F("[WS] Sending graph_point: graph=%s, label=%s, x=%llu, y=%.2f", graph, label, x, y);
@@ -25,22 +26,4 @@ inline void ModelBase::graphPushCbXY(const char* graph, const char* label, uint6
   if (!ctx) return;
   ModelBase* self = (ModelBase*)ctx;
   self->sendGraphPointXY(graph, label, x, y, true);
-}
-
-inline void ModelBase::sendGraphPoint(const char* graph, const char* label, int value) {
-  StaticJsonDocument<256> doc;
-  doc["topic"] = "graph_point";
-  JsonObject d = doc.createNestedObject("data");
-  d["graph"] = graph;
-  d["label"] = label;
-  d["value"] = value;
-
-  String out;
-  serializeJson(doc, out);
-  ws_.textAll(out);
-}
-
-inline void ModelBase::graphPushCb(const char* graph, const char* label, int value, void* ctx) {
-  if (!ctx) return;
-  ((ModelBase*)ctx)->sendGraphPoint(graph, label, value);
 }
