@@ -2,6 +2,9 @@
 
 // Included by src/model/ModelBase.h
 
+#include <type_traits>
+#include <functional>
+
 template <typename U>
 struct ModelBase::has_setSaveCallback {
   template <typename V>
@@ -40,11 +43,19 @@ inline void ModelBase::addEntry(const char* topic, T& obj, bool persist, bool ws
   // If the topic type exposes setSaveCallback(std::function<void()>), hook it to persist this entry on changes.
   {
     Entry* ep = &e;
-    if (has_setSaveCallback<T>::value) {
-      ((T*)&obj)->setSaveCallback([this, ep]() { this->saveEntry(*ep); });
-    }
+    maybeAttachSaveCallback<T>(obj, ep);
   }
 }
+
+template <typename T>
+inline typename std::enable_if<ModelBase::has_setSaveCallback<T>::value, void>::type
+ModelBase::maybeAttachSaveCallback(T& obj, Entry* ep) {
+  obj.setSaveCallback([this, ep]() { this->saveEntry(*ep); });
+}
+
+template <typename T>
+inline typename std::enable_if<!ModelBase::has_setSaveCallback<T>::value, void>::type
+ModelBase::maybeAttachSaveCallback(T&, Entry*) {}
 
 inline ModelBase::Entry* ModelBase::find(const char* topic) {
   for (size_t i = 0; i < entryCount_; ++i) {

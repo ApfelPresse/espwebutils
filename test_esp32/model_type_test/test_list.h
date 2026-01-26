@@ -177,6 +177,38 @@ void testListInVar() {
   TEST_END();
 }
 
+void testListVarReadArrayShortcut() {
+  TEST_START("Var<List> read array shortcut");
+
+  struct Wrapper {
+    fj::VarWsRo<List<StringBuffer<32>, 5>> available_networks;
+
+    typedef fj::Schema<Wrapper,
+                       fj::Field<Wrapper, decltype(available_networks)>>
+        SchemaType;
+
+    static const SchemaType& schema() {
+      static const SchemaType s = fj::makeSchema<Wrapper>(
+          fj::Field<Wrapper, decltype(available_networks)>{"available_networks", &Wrapper::available_networks});
+      return s;
+    }
+  } w;
+
+  // ReadDispatch::read_var_value supports array -> wraps into {items:[...]}
+  const char* jsonStr = R"({\"available_networks\":[\"A\",\"B\"]})";
+  StaticJsonDocument<256> doc;
+  DeserializationError err = deserializeJson(doc, jsonStr);
+  CUSTOM_ASSERT(!err, "JSON parse should succeed");
+
+  bool ok = fj::readFieldsTolerant(w, Wrapper::schema(), doc.as<JsonObject>());
+  CUSTOM_ASSERT(ok, "readFieldsTolerant should succeed");
+  CUSTOM_ASSERT(w.available_networks.get().size() == 2, "List should contain two items");
+  CUSTOM_ASSERT(strcmp(w.available_networks.get()[0].c_str(), "A") == 0, "First item A");
+  CUSTOM_ASSERT(strcmp(w.available_networks.get()[1].c_str(), "B") == 0, "Second item B");
+
+  TEST_END();
+}
+
 void runAllTests() {
   Serial.println("\n===== LIST TESTS =====\n");
   
@@ -186,6 +218,7 @@ void runAllTests() {
   testListSerialization();
   testListDeserialization();
   testListInVar();
+  testListVarReadArrayShortcut();
   
   Serial.println("\n===== LIST TESTS COMPLETE =====\n");
 }

@@ -8,6 +8,7 @@
 #include "model_type_test/test_serializer.h"
 #include "model_type_test/test_point_ring_buffer.h"
 #include "model_type_test/test_graph_var_sync.h"
+#include "model_type_test/test_modelbase_prefs.h"
 #include "model_type_test/test_wifi_integration.h"
 #include "button_system_test.h"
 
@@ -62,6 +63,7 @@ void setup() {
   VarModesTest::runAllTests();
   PointRingBufferTest::runAllTests();
   GraphVarSyncTest::runAllTests();
+  ModelBasePrefsTest::runAllTests();
   ButtonSystemTest::runAllTests();
   ModelPasswordTest::runAllTests();
   // WiFi integration tests  

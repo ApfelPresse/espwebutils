@@ -222,8 +222,10 @@ void testReadOnlyRejection() {
   deserializeJson(doc, updateJson);
   
   bool success = fj::readFieldsStrict(settings, TestSettings::schema(), doc.as<JsonObject>());
-  
-  // In strict mode with read-only fields, updates should be tolerated (ignored)
+
+  // In strict mode, attempts to write read-only fields should FAIL,
+  // but the values must remain unchanged.
+  CUSTOM_ASSERT(!success, "Strict read should fail when read-only fields are present in input");
   CUSTOM_ASSERT(strcmp(settings.deviceId.c_str(), "Original-ID") == 0, "deviceId should not change (read-only)");
   CUSTOM_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "statusCode should not change (read-only)");
   

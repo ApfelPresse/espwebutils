@@ -60,6 +60,75 @@ struct SecretPrefsStruct {
   }
 };
 
+// Strict vs tolerant behavior regression guard
+struct StrictVsTolerantFields {
+  fj::VarWsPrefsRw<int> a;
+  fj::VarWsPrefsRw<int> b;
+
+  typedef fj::Schema<StrictVsTolerantFields,
+                     fj::Field<StrictVsTolerantFields, decltype(a)>,
+                     fj::Field<StrictVsTolerantFields, decltype(b)>>
+      SchemaType;
+
+  static const SchemaType& schema() {
+    static const SchemaType s = fj::makeSchema<StrictVsTolerantFields>(
+        fj::Field<StrictVsTolerantFields, decltype(a)>{"a", &StrictVsTolerantFields::a},
+        fj::Field<StrictVsTolerantFields, decltype(b)>{"b", &StrictVsTolerantFields::b});
+    return s;
+  }
+};
+
+void testStrictVsTolerantMissingKey() {
+  TEST_START("Serializer strict vs tolerant (missing key)");
+
+  StrictVsTolerantFields obj;
+  obj.a = 1;
+  obj.b = 2;
+
+  // Missing 'b'
+  const char* jsonStr = R"({\"a\":10})";
+  StaticJsonDocument<256> doc;
+  DeserializationError err = deserializeJson(doc, jsonStr);
+  CUSTOM_ASSERT(!err, "JSON parse should succeed");
+
+  // Tolerant: should return true and update only 'a'
+  bool tol = fj::readFieldsTolerant(obj, StrictVsTolerantFields::schema(), doc.as<JsonObject>());
+  CUSTOM_ASSERT(tol, "readFieldsTolerant should succeed");
+  CUSTOM_ASSERT(obj.a.get() == 10, "Tolerant should update present key a");
+  CUSTOM_ASSERT(obj.b.get() == 2, "Tolerant should not change missing key b");
+
+  // Strict: should fail when any schema key is missing
+  StrictVsTolerantFields obj2;
+  obj2.a = 1;
+  obj2.b = 2;
+  bool strict = fj::readFieldsStrict(obj2, StrictVsTolerantFields::schema(), doc.as<JsonObject>());
+  CUSTOM_ASSERT(!strict, "readFieldsStrict should fail with missing key");
+  CUSTOM_ASSERT(obj2.a.get() == 10, "Strict currently still applies updates for present keys");
+  CUSTOM_ASSERT(obj2.b.get() == 2, "Strict should keep missing key unchanged");
+
+  TEST_END();
+}
+
+void testStrictIgnoresExtraKeys() {
+  TEST_START("Serializer strict ignores extra keys");
+
+  StrictVsTolerantFields obj;
+  obj.a = 1;
+  obj.b = 2;
+
+  const char* jsonStr = R"({\"a\":3,\"b\":4,\"extra\":999})";
+  StaticJsonDocument<256> doc;
+  DeserializationError err = deserializeJson(doc, jsonStr);
+  CUSTOM_ASSERT(!err, "JSON parse should succeed");
+
+  bool strict = fj::readFieldsStrict(obj, StrictVsTolerantFields::schema(), doc.as<JsonObject>());
+  CUSTOM_ASSERT(strict, "readFieldsStrict should succeed when all schema keys exist");
+  CUSTOM_ASSERT(obj.a.get() == 3, "a updated");
+  CUSTOM_ASSERT(obj.b.get() == 4, "b updated");
+
+  TEST_END();
+}
+
 void testDirectFieldsSerialization() {
   TEST_START("Direct Fields Serialization/Deserialization");
   
@@ -295,6 +364,8 @@ void runAllTests() {
   testVarFieldsRead();
   testVarFieldsRoundtrip();
   testTypeAdapterWritePrefsUsesPrefsPath();
+  testStrictVsTolerantMissingKey();
+  testStrictIgnoresExtraKeys();
   Serial.println("\n===== SERIALIZER TESTS COMPLETE =====\n");
 }
 

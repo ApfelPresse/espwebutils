@@ -5,6 +5,8 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <cstring>
+#include <type_traits>
+#include <functional>
 
 #include "model/ModelSerializer.h"
 #include "model/types/ModelTypeTraits.h"
@@ -71,6 +73,12 @@ private:
   // SFINAE detector: does T::setSaveCallback(std::function<void()>) exist?
   template <typename U>
   struct has_setSaveCallback;
+
+  template <typename T>
+  typename std::enable_if<has_setSaveCallback<T>::value, void>::type maybeAttachSaveCallback(T& obj, Entry* ep);
+
+  template <typename T>
+  typename std::enable_if<!has_setSaveCallback<T>::value, void>::type maybeAttachSaveCallback(T&, Entry*);
 
   String makeEnvelope(Entry& e);
   String makeDataOnlyJson(Entry& e);
