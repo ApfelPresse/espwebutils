@@ -8,7 +8,7 @@
 
 #include "../Logger.h"
 #include "ModelSerializer.h"
-#include "ModelTypeTraits.h"
+#include "types/ModelTypeTraits.h"
 
 // Policy-based field wrapper.
 //

@@ -1,6 +1,6 @@
 // ModelTypeTraits.h
 #pragma once
-#include "ModelSerializer.h"
+#include "../ModelSerializer.h"
 
 namespace fj {
 

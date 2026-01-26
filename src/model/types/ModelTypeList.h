@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <cstring>
 
-#include "ModelSerializer.h"
+#include "../ModelSerializer.h"
 #include "ModelTypeTraits.h"
 
 template <typename T, size_t N>

@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include "../../src/model/ModelTypePrimitive.h"
+#include "../../src/model/types/ModelTypePrimitive.h"
 #include "../test_helpers.h"
 
 // ============================================================================
@@ -46,7 +46,7 @@ void testStringTruncation() {
 void testStringTypeAdapterWs() {
   TEST_START("StringBuffer<N> TypeAdapter write_ws");
 
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
 
   StringBuffer<32> str("test_value");
@@ -62,7 +62,7 @@ void testStringTypeAdapterWs() {
 void testStringTypeAdapterRead() {
   TEST_START("String<N> TypeAdapter read");
 
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
   root["value"] = "read_test";
 
@@ -82,7 +82,7 @@ void testStringTypeAdapterRead() {
 void testIntTypeAdapter() {
   TEST_START("int TypeAdapter");
 
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
 
   int val = 42;
@@ -105,7 +105,7 @@ void testIntTypeAdapter() {
 void testFloatTypeAdapter() {
   TEST_START("float TypeAdapter");
 
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
 
   float val = 3.14f;
@@ -128,7 +128,7 @@ void testFloatTypeAdapter() {
 void testBoolTypeAdapter() {
   TEST_START("bool TypeAdapter");
 
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
 
   bool val = true;
@@ -158,7 +158,7 @@ void testStringWithVarWsPrefsRw() {
   TestStruct test;
   test.name = "initial";
 
-  DynamicJsonDocument doc(512);
+  StaticJsonDocument<512> doc;
   JsonObject root = doc.to<JsonObject>();
 
   // Simulate serialization
@@ -180,7 +180,7 @@ void testIntWithVarWsRo() {
   TestStruct test;
   test.count = 42;
 
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
 
   fj::write_ws(test.count.get(), root);
@@ -200,7 +200,7 @@ void testFloatWithVarMetaPrefsRw() {
   TestStruct test;
   test.temperature = 23.5f;
 
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
 
   fj::write_ws(test.temperature.get(), root);
@@ -219,7 +219,7 @@ void testBoolWithVarPrefsRw() {
   TestStruct test;
   test.enabled = true;
 
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
 
   fj::write_prefs(test.enabled.get(), root);
@@ -364,7 +364,7 @@ void testVarDeserializationTriggersCallback() {
   var.setOnChange([&callback_count]() { callback_count++; });
 
   // Simulate deserialization (what happens when loading from Preferences or WebSocket)
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
   JsonObject root = doc.to<JsonObject>();
   root["value"] = "deserialized_value";
 

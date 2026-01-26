@@ -7,7 +7,7 @@
 #include <cstring>
 
 #include "model/ModelSerializer.h"
-#include "model/ModelTypeTraits.h"
+#include "model/types/ModelTypeTraits.h"
 
 class ModelBase {
 public:
@@ -184,7 +184,8 @@ private:
   };
 
   String makeEnvelope(Entry& e) {
-    StaticJsonDocument<JSON_CAPACITY> doc;
+    static StaticJsonDocument<JSON_CAPACITY> doc;  // reuse to keep allocations off stack
+    doc.clear();
     doc["topic"] = e.topic;
 
     JsonObject data = doc.createNestedObject("data");
@@ -197,7 +198,8 @@ private:
 
   String makeDataOnlyJson(Entry& e) {
     LOG_TRACE_F("[ModelBase] makeDataOnlyJson starting for topic '%s'", e.topic);
-    StaticJsonDocument<JSON_CAPACITY> doc;
+    static StaticJsonDocument<JSON_CAPACITY> doc;  // reuse to keep allocations off stack
+    doc.clear();
     JsonObject data = doc.to<JsonObject>();
 
     LOG_TRACE_F("[ModelBase] Calling makePrefsJson for topic '%s'", e.topic);
@@ -276,7 +278,8 @@ private:
     LOG_TRACE_F("[ModelBase::applyUpdateImpl] Parsing JSON: %s", dataJson.c_str());
     T& obj = *(T*)objPtr;
 
-    StaticJsonDocument<JSON_CAPACITY> doc;
+    static StaticJsonDocument<JSON_CAPACITY> doc;  // reuse to avoid stack bloat
+    doc.clear();
     if (deserializeJson(doc, dataJson)) {
       LOG_WARN_F("[ModelBase::applyUpdateImpl] JSON parse failed");
       return false;
@@ -317,7 +320,8 @@ private:
   void handleIncoming(AsyncWebSocketClient* client, const String& msg) {
     LOG_DEBUG_F("[WS] Incoming message: %.100s", msg.c_str());
     
-    StaticJsonDocument<JSON_CAPACITY> doc;
+    static StaticJsonDocument<JSON_CAPACITY> doc;  // reuse to avoid stack bloat
+    doc.clear();
     if (deserializeJson(doc, msg)) {
       LOG_WARN("[WS] JSON deserialize failed");
       client->text(R"({"ok":false,"error":"invalid_json"})");

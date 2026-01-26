@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <cstring>
 #include <functional>
-#include "ModelSerializer.h"
+#include "../ModelSerializer.h"
 #include "ModelTypeTraits.h"
 
 struct Button {

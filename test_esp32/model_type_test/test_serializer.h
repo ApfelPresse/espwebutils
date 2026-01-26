@@ -1,7 +1,7 @@
 #pragma once
 #include "../test_helpers.h"
 #include "../../src/model/ModelSerializer.h"
-#include "../../src/model/ModelTypePrimitive.h"
+#include "../../src/model/types/ModelTypePrimitive.h"
 #include "../../src/model/ModelVar.h"
 
 namespace SerializerTest {

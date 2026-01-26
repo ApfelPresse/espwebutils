@@ -2,8 +2,8 @@
 #include "../test_helpers.h"
 #include "../../src/model/ModelSerializer.h"
 #include "../../src/model/ModelVar.h"
-#include "../../src/model/ModelTypePrimitive.h"
-#include "../../src/model/ModelTypeList.h"
+#include "../../src/model/types/ModelTypePrimitive.h"
+#include "../../src/model/types/ModelTypeList.h"
 
 // Forward declare WifiSettings (without including full Model.h which needs AsyncWebServer)
 struct WifiSettingsMinimal

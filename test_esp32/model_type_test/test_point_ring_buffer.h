@@ -1,7 +1,7 @@
 #pragma once
 #include "../test_helpers.h"
 #include "../../src/model/ModelSerializer.h"
-#include "../../src/model/ModelTypePointRingBuffer.h"
+#include "../../src/model/types/ModelTypePointRingBuffer.h"
 #include "../../src/model/ModelVar.h"
 #include <cmath>
 

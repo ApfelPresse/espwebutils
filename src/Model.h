@@ -3,10 +3,10 @@
 #include "TimeProvider.h"
 
 #include "model/ModelBase.h"
-#include "model/ModelTypeButton.h"
-#include "model/ModelTypePrimitive.h"
-#include "model/ModelTypeList.h"
-#include "model/ModelTypePointRingBuffer.h"
+#include "model/types/ModelTypeButton.h"
+#include "model/types/ModelTypePrimitive.h"
+#include "model/types/ModelTypeList.h"
+#include "model/types/ModelTypePointRingBuffer.h"
 #include "model/ModelVar.h"
 
 struct WifiSettings
