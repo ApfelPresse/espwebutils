@@ -6,8 +6,6 @@
 
 WiFiProvisioner wifi;
 
-// static Periodic metrics(5000);
-
 void setup()
 {
   Serial.begin(115200);
@@ -17,9 +15,9 @@ void setup()
   Serial.println("[DEBUG] Serial initialized (115200)");
   Serial.printf("[DEBUG] millis=%lu\n", millis());
 
-  // Set log level to TRACE globally BEFORE wifi.begin()
-  Logger::setLevel(LogLevel::TRACE);
-  Serial.println("[DEBUG] Log level set to TRACE");
+  // Set log level globally BEFORE wifi.begin()
+  Logger::setLevel(LogLevel::INFO);
+  Serial.printf("[DEBUG] Log level set to %s\n", Logger::levelToString(Logger::getLevel()));
 
   wifi.setApSsid("ESP-Setup");
   wifi.setMdnsHost("meinesp");
@@ -30,17 +28,17 @@ void setup()
   });
 
   wifi.begin();
+
+  // Passwörter auf Serial ausgeben (nur für Entwicklung)
+  Serial.println("\n============ PASSWÖRTER ============");
+  Serial.printf("Admin UI Pass: %s\n", wifi.model.admin.pass.get().c_str());
+  Serial.printf("OTA Pass:      %s\n", wifi.model.ota.ota_pass.get().c_str());
+  Serial.println("====================================\n");
 }
 
 void loop()
 {
   wifi.handleLoop();
-
-  // if (metrics.ready()) {
-  //   wifi.pushData("Wetter", "Temperatur", 21.5);
-  //   wifi.pushData("Wetter", "Luftfeuchte", 55.0);
-  //   wifi.pushData("System", "Heap", (double)ESP.getFreeHeap());
-  // }
 
   yield();
 }

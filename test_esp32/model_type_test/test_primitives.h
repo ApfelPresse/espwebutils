@@ -12,19 +12,19 @@ void testStringBasic() {
   TEST_START("StringBuffer<N> basic operations");
 
   StringBuffer<32> str;
-  TEST_ASSERT(str.c_str()[0] == '\0', "StringBuffer should be initialized empty");
+  CUSTOM_ASSERT(str.c_str()[0] == '\0', "StringBuffer should be initialized empty");
 
   str.set("Hello");
-  TEST_ASSERT(strcmp(str.c_str(), "Hello") == 0, "StringBuffer.set() should work");
+  CUSTOM_ASSERT(strcmp(str.c_str(), "Hello") == 0, "StringBuffer.set() should work");
 
   str = "World";
-  TEST_ASSERT(strcmp(str.c_str(), "World") == 0, "StringBuffer operator= should work");
+  CUSTOM_ASSERT(strcmp(str.c_str(), "World") == 0, "StringBuffer operator= should work");
 
   StringBuffer<32> str2 = str;
-  TEST_ASSERT(strcmp(str2.c_str(), "World") == 0, "StringBuffer copy assignment should work");
+  CUSTOM_ASSERT(strcmp(str2.c_str(), "World") == 0, "StringBuffer copy assignment should work");
 
-  TEST_ASSERT(str == "World", "StringBuffer operator== should work");
-  TEST_ASSERT(str != "Hello", "StringBuffer operator!= should work");
+  CUSTOM_ASSERT(str == "World", "StringBuffer operator== should work");
+  CUSTOM_ASSERT(str != "Hello", "StringBuffer operator!= should work");
 
   TEST_END();
 }
@@ -34,8 +34,8 @@ void testStringTruncation() {
 
   StringBuffer<5> str;
   str.set("LongString");
-  TEST_ASSERT(strcmp(str.c_str(), "Long") == 0, "String should truncate to N-1 chars");
-  TEST_ASSERT(str.c_str()[4] == '\0', "String should be null-terminated");
+  CUSTOM_ASSERT(strcmp(str.c_str(), "Long") == 0, "String should truncate to N-1 chars");
+  CUSTOM_ASSERT(str.c_str()[4] == '\0', "String should be null-terminated");
 
   TEST_END();
 }
@@ -52,8 +52,8 @@ void testStringTypeAdapterWs() {
   StringBuffer<32> str("test_value");
   fj::TypeAdapter<StringBuffer<32>>::write_ws(str, root);
 
-  TEST_ASSERT(root.containsKey("value"), "Should write 'value' key");
-  TEST_ASSERT(strcmp(root["value"].as<const char*>(), "test_value") == 0,
+  CUSTOM_ASSERT(root.containsKey("value"), "Should write 'value' key");
+  CUSTOM_ASSERT(strcmp(root["value"].as<const char*>(), "test_value") == 0,
               "Should write correct string value");
 
   TEST_END();
@@ -69,8 +69,8 @@ void testStringTypeAdapterRead() {
   StringBuffer<32> str;
   bool result = fj::TypeAdapter<StringBuffer<32>>::read(str, root, false);
 
-  TEST_ASSERT(result, "read should return true");
-  TEST_ASSERT(strcmp(str.c_str(), "read_test") == 0, "read should update string value");
+  CUSTOM_ASSERT(result, "read should return true");
+  CUSTOM_ASSERT(strcmp(str.c_str(), "read_test") == 0, "read should update string value");
 
   TEST_END();
 }
@@ -87,13 +87,13 @@ void testIntTypeAdapter() {
 
   int val = 42;
   fj::TypeAdapter<int>::write_ws(val, root);
-  TEST_ASSERT(root["value"].as<int>() == 42, "write_ws should serialize int");
+  CUSTOM_ASSERT(root["value"].as<int>() == 42, "write_ws should serialize int");
 
   root.clear();
   root["value"] = 99;
   int val2 = 0;
   bool result = fj::TypeAdapter<int>::read(val2, root, false);
-  TEST_ASSERT(result && val2 == 99, "read should deserialize int");
+  CUSTOM_ASSERT(result && val2 == 99, "read should deserialize int");
 
   TEST_END();
 }
@@ -110,13 +110,13 @@ void testFloatTypeAdapter() {
 
   float val = 3.14f;
   fj::TypeAdapter<float>::write_ws(val, root);
-  TEST_ASSERT(abs(root["value"].as<float>() - 3.14f) < 0.01f, "write_ws should serialize float");
+  CUSTOM_ASSERT(abs(root["value"].as<float>() - 3.14f) < 0.01f, "write_ws should serialize float");
 
   root.clear();
   root["value"] = 2.71f;
   float val2 = 0.0f;
   bool result = fj::TypeAdapter<float>::read(val2, root, false);
-  TEST_ASSERT(result && abs(val2 - 2.71f) < 0.01f, "read should deserialize float");
+  CUSTOM_ASSERT(result && abs(val2 - 2.71f) < 0.01f, "read should deserialize float");
 
   TEST_END();
 }
@@ -133,13 +133,13 @@ void testBoolTypeAdapter() {
 
   bool val = true;
   fj::TypeAdapter<bool>::write_ws(val, root);
-  TEST_ASSERT(root["value"].as<bool>() == true, "write_ws should serialize bool true");
+  CUSTOM_ASSERT(root["value"].as<bool>() == true, "write_ws should serialize bool true");
 
   root.clear();
   root["value"] = false;
   bool val2 = true;
   bool result = fj::TypeAdapter<bool>::read(val2, root, false);
-  TEST_ASSERT(result && val2 == false, "read should deserialize bool false");
+  CUSTOM_ASSERT(result && val2 == false, "read should deserialize bool false");
 
   TEST_END();
 }
@@ -163,8 +163,8 @@ void testStringWithVarWsPrefsRw() {
 
   // Simulate serialization
   fj::write_ws(test.name.get(), root);
-  TEST_ASSERT(root.containsKey("value"), "Should have 'value' key");
-  TEST_ASSERT(strcmp(root["value"].as<const char*>(), "initial") == 0,
+  CUSTOM_ASSERT(root.containsKey("value"), "Should have 'value' key");
+  CUSTOM_ASSERT(strcmp(root["value"].as<const char*>(), "initial") == 0,
               "Should serialize with Var wrapper");
 
   TEST_END();
@@ -184,8 +184,8 @@ void testIntWithVarWsRo() {
   JsonObject root = doc.to<JsonObject>();
 
   fj::write_ws(test.count.get(), root);
-  TEST_ASSERT(root.containsKey("value"), "Should have 'value' key");
-  TEST_ASSERT(root["value"].as<int>() == 42, "Should serialize int");
+  CUSTOM_ASSERT(root.containsKey("value"), "Should have 'value' key");
+  CUSTOM_ASSERT(root["value"].as<int>() == 42, "Should serialize int");
 
   TEST_END();
 }
@@ -204,7 +204,7 @@ void testFloatWithVarMetaPrefsRw() {
   JsonObject root = doc.to<JsonObject>();
 
   fj::write_ws(test.temperature.get(), root);
-  TEST_ASSERT(root["value"].as<float>() > 23.0f, "Should serialize float");
+  CUSTOM_ASSERT(root["value"].as<float>() > 23.0f, "Should serialize float");
 
   TEST_END();
 }
@@ -223,7 +223,7 @@ void testBoolWithVarPrefsRw() {
   JsonObject root = doc.to<JsonObject>();
 
   fj::write_prefs(test.enabled.get(), root);
-  TEST_ASSERT(root["value"].as<bool>() == true, "Should serialize bool");
+  CUSTOM_ASSERT(root["value"].as<bool>() == true, "Should serialize bool");
 
   TEST_END();
 }
@@ -242,20 +242,20 @@ void testVarStringBufferCallback() {
 
   // Test 1: operator= with const char*
   var = "test1";
-  TEST_ASSERT(callback_count == 1, "Callback should be called on operator=(const char*)");
+  CUSTOM_ASSERT(callback_count == 1, "Callback should be called on operator=(const char*)");
 
   // Test 2: set() method
   var.set("test2");
-  TEST_ASSERT(callback_count == 2, "Callback should be called on set()");
+  CUSTOM_ASSERT(callback_count == 2, "Callback should be called on set()");
 
   // Test 3: operator= with StringBuffer
   StringBuffer<32> buf;
   buf.set("test3");
   var = buf;
-  TEST_ASSERT(callback_count == 3, "Callback should be called on operator=(StringBuffer)");
+  CUSTOM_ASSERT(callback_count == 3, "Callback should be called on operator=(StringBuffer)");
 
   // Test 4: Verify the value was actually set
-  TEST_ASSERT(strcmp(var.get().c_str(), "test3") == 0, "Value should be 'test3'");
+  CUSTOM_ASSERT(strcmp(var.get().c_str(), "test3") == 0, "Value should be 'test3'");
 
   TEST_END();
 }
@@ -269,12 +269,12 @@ void testVarIntCallback() {
   var.setOnChange([&callback_count]() { callback_count++; });
 
   var = 42;
-  TEST_ASSERT(callback_count == 1, "Callback should be called on operator=");
+  CUSTOM_ASSERT(callback_count == 1, "Callback should be called on operator=");
 
   var.set(99);
-  TEST_ASSERT(callback_count == 2, "Callback should be called on set()");
+  CUSTOM_ASSERT(callback_count == 2, "Callback should be called on set()");
 
-  TEST_ASSERT(var.get() == 99, "Value should be 99");
+  CUSTOM_ASSERT(var.get() == 99, "Value should be 99");
 
   TEST_END();
 }
@@ -288,12 +288,12 @@ void testVarFloatCallback() {
   var.setOnChange([&callback_count]() { callback_count++; });
 
   var = 3.14f;
-  TEST_ASSERT(callback_count == 1, "Callback should be called");
+  CUSTOM_ASSERT(callback_count == 1, "Callback should be called");
 
   var.set(2.71f);
-  TEST_ASSERT(callback_count == 2, "Callback should be called on set()");
+  CUSTOM_ASSERT(callback_count == 2, "Callback should be called on set()");
 
-  TEST_ASSERT(abs(var.get() - 2.71f) < 0.01f, "Value should be 2.71");
+  CUSTOM_ASSERT(abs(var.get() - 2.71f) < 0.01f, "Value should be 2.71");
 
   TEST_END();
 }
@@ -307,12 +307,12 @@ void testVarBoolCallback() {
   var.setOnChange([&callback_count]() { callback_count++; });
 
   var = true;
-  TEST_ASSERT(callback_count == 1, "Callback should be called");
+  CUSTOM_ASSERT(callback_count == 1, "Callback should be called");
 
   var.set(false);
-  TEST_ASSERT(callback_count == 2, "Callback should be called on set()");
+  CUSTOM_ASSERT(callback_count == 2, "Callback should be called on set()");
 
-  TEST_ASSERT(var.get() == false, "Value should be false");
+  CUSTOM_ASSERT(var.get() == false, "Value should be false");
 
   TEST_END();
 }
@@ -339,18 +339,18 @@ void testSettingsStructCallbackIntegration() {
 
   // Test that all fields trigger the callback
   settings.name = "Alice";
-  TEST_ASSERT(save_count == 1, "name change should trigger callback");
+  CUSTOM_ASSERT(save_count == 1, "name change should trigger callback");
 
   settings.password = "secret123";
-  TEST_ASSERT(save_count == 2, "password change should trigger callback");
+  CUSTOM_ASSERT(save_count == 2, "password change should trigger callback");
 
   settings.count = 42;
-  TEST_ASSERT(save_count == 3, "count change should trigger callback");
+  CUSTOM_ASSERT(save_count == 3, "count change should trigger callback");
 
   // Verify values are correct
-  TEST_ASSERT(strcmp(settings.name.get().c_str(), "Alice") == 0, "name should be 'Alice'");
-  TEST_ASSERT(strcmp(settings.password.get().c_str(), "secret123") == 0, "password should be 'secret123'");
-  TEST_ASSERT(settings.count.get() == 42, "count should be 42");
+  CUSTOM_ASSERT(strcmp(settings.name.get().c_str(), "Alice") == 0, "name should be 'Alice'");
+  CUSTOM_ASSERT(strcmp(settings.password.get().c_str(), "secret123") == 0, "password should be 'secret123'");
+  CUSTOM_ASSERT(settings.count.get() == 42, "count should be 42");
 
   TEST_END();
 }
@@ -372,12 +372,12 @@ void testVarDeserializationTriggersCallback() {
   
   // Note: Direct read to var.get() won't trigger Var callback
   // This is expected behavior - use var = "value" for callback triggering
-  TEST_ASSERT(success, "Deserialization should succeed");
-  TEST_ASSERT(strcmp(var.get().c_str(), "deserialized_value") == 0, "Value should be deserialized");
+  CUSTOM_ASSERT(success, "Deserialization should succeed");
+  CUSTOM_ASSERT(strcmp(var.get().c_str(), "deserialized_value") == 0, "Value should be deserialized");
   
   // But assignment through operator= WILL trigger callback
   var = "new_value";
-  TEST_ASSERT(callback_count == 1, "operator= should trigger callback");
+  CUSTOM_ASSERT(callback_count == 1, "operator= should trigger callback");
 
   TEST_END();
 }

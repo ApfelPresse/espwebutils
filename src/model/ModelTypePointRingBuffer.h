@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <cstring>
 #include "ModelTypeTraits.h"
 
@@ -13,6 +14,7 @@ struct PointRingBuffer {
   Point data[N];
   size_t head  = 0;
   size_t count = 0;
+  size_t max_count = N;
 
   char graph_name[24];
   char label[24];
@@ -107,6 +109,7 @@ struct TypeAdapter<PointRingBuffer<N>> {
     out["label"]  = rb.label;
     out["size"]   = (int)N;
     out["count"]  = (int)rb.count;
+    out["max_count"] = (int)rb.max_count;
     out["synced"] = rb.timeSynced();
 
     JsonArray values = out.createNestedArray("values");
@@ -122,7 +125,40 @@ struct TypeAdapter<PointRingBuffer<N>> {
     }
   }
 
-  static bool read(PointRingBuffer<N>&, JsonObject, bool) {
+  // WS output (same as write)
+  static void write_ws(const PointRingBuffer<N>& rb, JsonObject out) {
+    write(rb, out);
+  }
+
+  // Persist full buffer (same shape as WS output)
+  static void write_prefs(const PointRingBuffer<N>& rb, JsonObject out) {
+    write(rb, out);
+  }
+
+  static bool read(PointRingBuffer<N>& rb, JsonObject in, bool) {
+    // Reset state
+    rb.head = 0;
+    rb.count = 0;
+
+    const char* g = in["graph"] | "";
+    const char* l = in["label"] | "";
+    rb.setGraph(g);
+    rb.setLabel(l);
+
+    if (!in.containsKey("values")) return true;
+    JsonArray values = in["values"].as<JsonArray>();
+    if (values.isNull()) return true;
+
+    for (JsonObject p : values) {
+      if (rb.count >= N) break;
+      uint64_t x = p["x"] | 0ULL;
+      float    y = p["y"] | 0.0f;
+      rb.data[rb.head].x = x;
+      rb.data[rb.head].y = y;
+      rb.head = (rb.head + 1) % N;
+      rb.count++;
+    }
+
     return true;
   }
 };

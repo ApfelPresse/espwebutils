@@ -56,7 +56,7 @@ void testVarWsPrefsRw() {
   fj::VarWsPrefsRw<StringBuffer<32>> var;
   var = "TestValue";
   
-  TEST_ASSERT(strcmp(var.c_str(), "TestValue") == 0, "Should store value");
+  CUSTOM_ASSERT(strcmp(var.c_str(), "TestValue") == 0, "Should store value");
   
   // Serialize for WebSocket (should include value)
   StaticJsonDocument<256> doc;
@@ -65,7 +65,7 @@ void testVarWsPrefsRw() {
   
   String json;
   serializeJson(root, json);
-  TEST_ASSERT(json.indexOf("TestValue") > 0, "WS should include value");
+  CUSTOM_ASSERT(json.indexOf("TestValue") > 0, "WS should include value");
   
   // Serialize for Prefs (should include value)
   StaticJsonDocument<256> docPrefs;
@@ -74,7 +74,7 @@ void testVarWsPrefsRw() {
   
   String jsonPrefs;
   serializeJson(rootPrefs, jsonPrefs);
-  TEST_ASSERT(jsonPrefs.indexOf("TestValue") > 0, "Prefs should include value");
+  CUSTOM_ASSERT(jsonPrefs.indexOf("TestValue") > 0, "Prefs should include value");
   
   TEST_END();
 }
@@ -85,7 +85,7 @@ void testVarWsRo() {
   TestSettings settings;
   settings.statusCode = "200";
   
-  TEST_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "Should store value");
+  CUSTOM_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "Should store value");
   
   // Serialize for WebSocket (should include value)
   StaticJsonDocument<512> doc;
@@ -95,7 +95,7 @@ void testVarWsRo() {
   String json;
   serializeJson(root, json);
   Serial.println("VarWsRo WS: " + json);
-  TEST_ASSERT(json.indexOf("200") > 0, "WS should include value");
+  CUSTOM_ASSERT(json.indexOf("200") > 0, "WS should include value");
   
   // Try to deserialize (should be tolerated because using tolerant mode)
   const char* updateJson = R"({"statusCode":"404"})";
@@ -103,8 +103,8 @@ void testVarWsRo() {
   deserializeJson(updateDoc, updateJson);
   
   bool success = fj::readFieldsTolerant(settings, TestSettings::schema(), updateDoc.as<JsonObject>());
-  TEST_ASSERT(success, "Read-only field update should be tolerated in tolerant mode");
-  TEST_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "Value should not change (read-only)");
+  CUSTOM_ASSERT(success, "Read-only field update should be tolerated in tolerant mode");
+  CUSTOM_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "Value should not change (read-only)");
   
   TEST_END();
 }
@@ -124,9 +124,9 @@ void testVarMetaPrefsRw() {
   serializeJson(root, json);
   Serial.println("VarMetaPrefsRw WS: " + json);
   
-  TEST_ASSERT(json.indexOf("SecretPassword123") == -1, "WS should NOT leak secret value");
-  TEST_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "WS should include meta type");
-  TEST_ASSERT(json.indexOf("\"initialized\"") > 0, "WS should include initialized flag");
+  CUSTOM_ASSERT(json.indexOf("SecretPassword123") == -1, "WS should NOT leak secret value");
+  CUSTOM_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "WS should include meta type");
+  CUSTOM_ASSERT(json.indexOf("\"initialized\"") > 0, "WS should include initialized flag");
   
   // Serialize for Prefs (should include value)
   StaticJsonDocument<512> docPrefs;
@@ -137,7 +137,7 @@ void testVarMetaPrefsRw() {
   serializeJson(rootPrefs, jsonPrefs);
   Serial.println("VarMetaPrefsRw Prefs: " + jsonPrefs);
   
-  TEST_ASSERT(jsonPrefs.indexOf("SecretPassword123") > 0, "Prefs SHOULD include secret value");
+  CUSTOM_ASSERT(jsonPrefs.indexOf("SecretPassword123") > 0, "Prefs SHOULD include secret value");
   
   TEST_END();
 }
@@ -157,8 +157,8 @@ void testVarMetaRw() {
   serializeJson(root, json);
   Serial.println("VarMetaRw WS: " + json);
   
-  TEST_ASSERT(json.indexOf("1234") == -1, "WS should NOT leak secret PIN");
-  TEST_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "WS should include meta type");
+  CUSTOM_ASSERT(json.indexOf("1234") == -1, "WS should NOT leak secret PIN");
+  CUSTOM_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "WS should include meta type");
   
   // Serialize for Prefs (should NOT include, no persistence)
   StaticJsonDocument<512> docPrefs;
@@ -169,7 +169,7 @@ void testVarMetaRw() {
   serializeJson(rootPrefs, jsonPrefs);
   Serial.println("VarMetaRw Prefs: " + jsonPrefs);
   
-  TEST_ASSERT(jsonPrefs.indexOf("secretPin") == -1, "Prefs should NOT include non-persistent field");
+  CUSTOM_ASSERT(jsonPrefs.indexOf("secretPin") == -1, "Prefs should NOT include non-persistent field");
   
   TEST_END();
 }
@@ -195,12 +195,12 @@ void testPrefsFiltering() {
   Serial.println("Prefs JSON: " + json);
   
   // Check what's included
-  TEST_ASSERT(json.indexOf("Device1") > 0, "name (PrefsRw) should be in Prefs");
-  TEST_ASSERT(json.indexOf("tempValue") == -1, "tempValue (no Prefs) should NOT be in Prefs");
-  TEST_ASSERT(json.indexOf("ESP32-ABC123") > 0, "deviceId (PrefsRo) should be in Prefs");
-  TEST_ASSERT(json.indexOf("statusCode") == -1, "statusCode (no Prefs) should NOT be in Prefs");
-  TEST_ASSERT(json.indexOf("MySecret") > 0, "password (MetaPrefsRw) should be in Prefs");
-  TEST_ASSERT(json.indexOf("secretPin") == -1, "secretPin (MetaRw, no Prefs) should NOT be in Prefs");
+  CUSTOM_ASSERT(json.indexOf("Device1") > 0, "name (PrefsRw) should be in Prefs");
+  CUSTOM_ASSERT(json.indexOf("tempValue") == -1, "tempValue (no Prefs) should NOT be in Prefs");
+  CUSTOM_ASSERT(json.indexOf("ESP32-ABC123") > 0, "deviceId (PrefsRo) should be in Prefs");
+  CUSTOM_ASSERT(json.indexOf("statusCode") == -1, "statusCode (no Prefs) should NOT be in Prefs");
+  CUSTOM_ASSERT(json.indexOf("MySecret") > 0, "password (MetaPrefsRw) should be in Prefs");
+  CUSTOM_ASSERT(json.indexOf("secretPin") == -1, "secretPin (MetaRw, no Prefs) should NOT be in Prefs");
   
   TEST_END();
 }
@@ -224,8 +224,8 @@ void testReadOnlyRejection() {
   bool success = fj::readFieldsStrict(settings, TestSettings::schema(), doc.as<JsonObject>());
   
   // In strict mode with read-only fields, updates should be tolerated (ignored)
-  TEST_ASSERT(strcmp(settings.deviceId.c_str(), "Original-ID") == 0, "deviceId should not change (read-only)");
-  TEST_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "statusCode should not change (read-only)");
+  CUSTOM_ASSERT(strcmp(settings.deviceId.c_str(), "Original-ID") == 0, "deviceId should not change (read-only)");
+  CUSTOM_ASSERT(strcmp(settings.statusCode.c_str(), "200") == 0, "statusCode should not change (read-only)");
   
   TEST_END();
 }
@@ -237,16 +237,16 @@ void testVarOnChange() {
   fj::VarWsPrefsRw<int> var;
   var.setOnChange([&changeCount]() { changeCount++; });
   
-  TEST_ASSERT(changeCount == 0, "No changes yet");
+  CUSTOM_ASSERT(changeCount == 0, "No changes yet");
   
   var.set(10);
-  TEST_ASSERT(changeCount == 1, "Should trigger on set()");
+  CUSTOM_ASSERT(changeCount == 1, "Should trigger on set()");
   
   var = 20;
-  TEST_ASSERT(changeCount == 2, "Should trigger on assignment");
+  CUSTOM_ASSERT(changeCount == 2, "Should trigger on assignment");
   
   var += 5;
-  TEST_ASSERT(changeCount == 3, "Should trigger on +=");
+  CUSTOM_ASSERT(changeCount == 3, "Should trigger on +=");
   
   TEST_END();
 }
@@ -284,7 +284,7 @@ void testVarMetaPrefsRwRoundtrip() {
   Serial.println("Saved to Prefs: " + jsonSaved);
   
   // CRITICAL: Verify the password VALUE is in the saved JSON
-  TEST_ASSERT(jsonSaved.indexOf("MySecretPassword123") > 0, 
+  CUSTOM_ASSERT(jsonSaved.indexOf("MySecretPassword123") > 0, 
               "BUG: Password value MUST be in Prefs JSON! Found: " + jsonSaved);
   
   // Deserialize from Prefs JSON (simulating load)
@@ -293,8 +293,8 @@ void testVarMetaPrefsRwRoundtrip() {
   deserializeJson(docLoad, jsonSaved);
   bool readOk = fj::readFieldsTolerant(settings2, PasswordSettings::schema(), docLoad.as<JsonObject>());
   
-  TEST_ASSERT(readOk, "Should successfully deserialize from Prefs");
-  TEST_ASSERT(strcmp(settings2.password.c_str(), "MySecretPassword123") == 0, 
+  CUSTOM_ASSERT(readOk, "Should successfully deserialize from Prefs");
+  CUSTOM_ASSERT(strcmp(settings2.password.c_str(), "MySecretPassword123") == 0, 
               "Password should be restored correctly");
   
   Serial.println("Loaded password: " + String(settings2.password.c_str()));
@@ -309,9 +309,9 @@ void testVarMetaPrefsRwRoundtrip() {
   Serial.println("WS serialized: " + jsonWs);
   
   // For VarMetaPrefsRw, WS should NOT include the password value
-  TEST_ASSERT(jsonWs.indexOf("MySecretPassword123") == -1,
+  CUSTOM_ASSERT(jsonWs.indexOf("MySecretPassword123") == -1,
               "BUG: WS should NOT leak password value!");
-  TEST_ASSERT(jsonWs.indexOf("\"type\"") > 0,
+  CUSTOM_ASSERT(jsonWs.indexOf("\"type\"") > 0,
               "WS should include metadata type");
   
   TEST_END();

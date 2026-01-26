@@ -17,14 +17,17 @@ enum class LogLevel {
 #endif
 
 namespace Logger {
-  static LogLevel currentLevel = LOG_LEVEL;
+  inline LogLevel& levelRef() {
+    static LogLevel level = LOG_LEVEL;
+    return level;
+  }
   
   inline void setLevel(LogLevel level) {
-    currentLevel = level;
+    levelRef() = level;
   }
   
   inline LogLevel getLevel() {
-    return currentLevel;
+    return levelRef();
   }
   
   inline const char* levelToString(LogLevel level) {
@@ -39,7 +42,7 @@ namespace Logger {
   }
   
   inline bool shouldLog(LogLevel level) {
-    return level >= currentLevel;
+    return level >= levelRef();
   }
 }
 

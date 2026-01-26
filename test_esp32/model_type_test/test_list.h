@@ -12,31 +12,31 @@ void testListBasics() {
   TEST_START("List Basic Operations");
   
   List<int, 5> list;
-  TEST_ASSERT(list.size() == 0, "Initial size should be 0");
-  TEST_ASSERT(list.capacity() == 5, "Capacity should be 5");
-  TEST_ASSERT(!list.isFull(), "Should not be full");
+  CUSTOM_ASSERT(list.size() == 0, "Initial size should be 0");
+  CUSTOM_ASSERT(list.capacity() == 5, "Capacity should be 5");
+  CUSTOM_ASSERT(!list.isFull(), "Should not be full");
   
   // Add items
-  TEST_ASSERT(list.add(10), "Should add first item");
-  TEST_ASSERT(list.size() == 1, "Size should be 1");
-  TEST_ASSERT(list[0] == 10, "First item should be 10");
+  CUSTOM_ASSERT(list.add(10), "Should add first item");
+  CUSTOM_ASSERT(list.size() == 1, "Size should be 1");
+  CUSTOM_ASSERT(list[0] == 10, "First item should be 10");
   
   list.add(20);
   list.add(30);
-  TEST_ASSERT(list.size() == 3, "Size should be 3");
-  TEST_ASSERT(list[1] == 20, "Second item should be 20");
-  TEST_ASSERT(list[2] == 30, "Third item should be 30");
+  CUSTOM_ASSERT(list.size() == 3, "Size should be 3");
+  CUSTOM_ASSERT(list[1] == 20, "Second item should be 20");
+  CUSTOM_ASSERT(list[2] == 30, "Third item should be 30");
   
   // Fill to capacity
   list.add(40);
   list.add(50);
-  TEST_ASSERT(list.isFull(), "Should be full");
-  TEST_ASSERT(!list.add(60), "Should not add when full");
+  CUSTOM_ASSERT(list.isFull(), "Should be full");
+  CUSTOM_ASSERT(!list.add(60), "Should not add when full");
   
   // Clear
   list.clear();
-  TEST_ASSERT(list.size() == 0, "Size should be 0 after clear");
-  TEST_ASSERT(!list.isFull(), "Should not be full after clear");
+  CUSTOM_ASSERT(list.size() == 0, "Size should be 0 after clear");
+  CUSTOM_ASSERT(!list.isFull(), "Should not be full after clear");
   
   TEST_END();
 }
@@ -53,7 +53,7 @@ void testListIterator() {
   for (int val : list) {
     sum += val;
   }
-  TEST_ASSERT(sum == 6, "Sum should be 6 (1+2+3)");
+  CUSTOM_ASSERT(sum == 6, "Sum should be 6 (1+2+3)");
   
   // Test const iterator
   const List<int, 5>& constList = list;
@@ -61,7 +61,7 @@ void testListIterator() {
   for (auto val : constList) {
     count++;
   }
-  TEST_ASSERT(count == 3, "Should iterate over 3 items");
+  CUSTOM_ASSERT(count == 3, "Should iterate over 3 items");
   
   TEST_END();
 }
@@ -80,10 +80,10 @@ void testListWithStaticString() {
   list.add(str2);
   list.add(str3);
   
-  TEST_ASSERT(list.size() == 3, "Should have 3 items");
-  TEST_ASSERT(strcmp(list[0].c_str(), "Alpha") == 0, "First should be Alpha");
-  TEST_ASSERT(strcmp(list[1].c_str(), "Beta") == 0, "Second should be Beta");
-  TEST_ASSERT(strcmp(list[2].c_str(), "Gamma") == 0, "Third should be Gamma");
+  CUSTOM_ASSERT(list.size() == 3, "Should have 3 items");
+  CUSTOM_ASSERT(strcmp(list[0].c_str(), "Alpha") == 0, "First should be Alpha");
+  CUSTOM_ASSERT(strcmp(list[1].c_str(), "Beta") == 0, "Second should be Beta");
+  CUSTOM_ASSERT(strcmp(list[2].c_str(), "Gamma") == 0, "Third should be Gamma");
   
   TEST_END();
 }
@@ -110,16 +110,16 @@ void testListSerialization() {
   serializeJson(root, json);
   Serial.println("List JSON: " + json);
   
-  TEST_ASSERT(root["type"] == "list", "Type should be 'list'");
-  TEST_ASSERT(root["count"] == 3, "Count should be 3");
-  TEST_ASSERT(root["capacity"] == 5, "Capacity should be 5");
-  TEST_ASSERT(root["items"].is<JsonArray>(), "Items should be an array");
+  CUSTOM_ASSERT(root["type"] == "list", "Type should be 'list'");
+  CUSTOM_ASSERT(root["count"] == 3, "Count should be 3");
+  CUSTOM_ASSERT(root["capacity"] == 5, "Capacity should be 5");
+  CUSTOM_ASSERT(root["items"].is<JsonArray>(), "Items should be an array");
   
   JsonArray items = root["items"];
-  TEST_ASSERT(items.size() == 3, "Items array should have 3 elements");
-  TEST_ASSERT(strcmp(items[0], "Network1") == 0, "First item should be Network1");
-  TEST_ASSERT(strcmp(items[1], "Network2") == 0, "Second item should be Network2");
-  TEST_ASSERT(strcmp(items[2], "Network3") == 0, "Third item should be Network3");
+  CUSTOM_ASSERT(items.size() == 3, "Items array should have 3 elements");
+  CUSTOM_ASSERT(strcmp(items[0], "Network1") == 0, "First item should be Network1");
+  CUSTOM_ASSERT(strcmp(items[1], "Network2") == 0, "Second item should be Network2");
+  CUSTOM_ASSERT(strcmp(items[2], "Network3") == 0, "Third item should be Network3");
   
   TEST_END();
 }
@@ -136,11 +136,11 @@ void testListDeserialization() {
   List<StringBuffer<32>, 10> list;
   bool success = fj::TypeAdapter<List<StringBuffer<32>, 10>>::read(list, root, false);
   
-  TEST_ASSERT(success, "Deserialization should succeed");
-  TEST_ASSERT(list.size() == 3, "Should have 3 items");
-  TEST_ASSERT(strcmp(list[0].c_str(), "WiFi-A") == 0, "First should be WiFi-A");
-  TEST_ASSERT(strcmp(list[1].c_str(), "WiFi-B") == 0, "Second should be WiFi-B");
-  TEST_ASSERT(strcmp(list[2].c_str(), "WiFi-C") == 0, "Third should be WiFi-C");
+  CUSTOM_ASSERT(success, "Deserialization should succeed");
+  CUSTOM_ASSERT(list.size() == 3, "Should have 3 items");
+  CUSTOM_ASSERT(strcmp(list[0].c_str(), "WiFi-A") == 0, "First should be WiFi-A");
+  CUSTOM_ASSERT(strcmp(list[1].c_str(), "WiFi-B") == 0, "Second should be WiFi-B");
+  CUSTOM_ASSERT(strcmp(list[2].c_str(), "WiFi-C") == 0, "Third should be WiFi-C");
   
   TEST_END();
 }
@@ -158,7 +158,7 @@ void testListInVar() {
   availableNetworks.get().add(net1);
   availableNetworks.get().add(net2);
   
-  TEST_ASSERT(availableNetworks.get().size() == 2, "Should have 2 networks");
+  CUSTOM_ASSERT(availableNetworks.get().size() == 2, "Should have 2 networks");
   
   // Serialize as if via WebSocket
   StaticJsonDocument<512> doc;
@@ -172,7 +172,7 @@ void testListInVar() {
   serializeJson(root, json);
   Serial.println("Var<List> JSON: " + json);
   
-  TEST_ASSERT(nested["items"].size() == 2, "Should have 2 items in JSON");
+  CUSTOM_ASSERT(nested["items"].size() == 2, "Should have 2 items in JSON");
   
   TEST_END();
 }

@@ -10,20 +10,40 @@
   <style>
     body {
       padding: 2rem;
+      background: #f7f9fc;
     }
 
-    .info-card {
-      margin-bottom: 2rem;
+    .card-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
     }
 
-    .btn-danger {
-      background-color: #e53935 !important;
+    .setting-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      gap: 0.75rem;
     }
+
+    .setting-row label {
+      min-width: 120px;
+      font-weight: 600;
+    }
+
+    .setting-row .value-list {
+      margin: 0;
+      padding-left: 1rem;
+    }
+
+    .chip.connected { background-color: #e8f5e9; color: #2e7d32; }
+    .chip.disconnected { background-color: #ffebee; color: #c62828; }
   </style>
 </head>
 
 <body>
   <h4>⚙️ ESP32 Admin</h4>
+
   <div id="loginBox" style="margin-bottom:1rem; display:none;">
     <div class="card">
       <div class="card-content">
@@ -41,71 +61,434 @@
     </div>
   </div>
 
-  <div id="mainContent">
-  <div class="card info-card">
-    <div class="card-content">
-      <span class="card-title">Netzwerkstatus</span>
-      <p><strong>SSID:</strong> <span id="ssid">...</span></p>
-      <p><strong>IP-Adresse:</strong> <span id="ip">...</span></p>
-      <p><strong>mDNS:</strong> <span id="mdns">...</span></p>
+  <div id="mainContent" style="display:none;">
+    <div style="margin-bottom:1rem; display:flex; gap:0.5rem; align-items:center; flex-wrap: wrap;">
+      <span id="wsBadge" class="chip disconnected">WS: getrennt</span>
+      <span id="authBadge" class="chip grey lighten-3">Auth: unbekannt</span>
     </div>
-  </div>
 
-  <div class="card info-card blue lighten-5">
-    <div class="card-content">
-      <span class="card-title blue-text">OTA</span>
-      <p><strong>Status:</strong> <span id="otaEnabled">...</span></p>
-      <p><strong>Host:</strong> <span id="otaHost">...</span></p>
-      <p><strong>Port:</strong> <span id="otaPort">...</span></p>
-      <p><strong>Fenster:</strong> <span id="otaWindow">...</span></p>
-      <p><strong>Restzeit:</strong> <span id="otaRemaining">...</span></p>
-      <p><strong>Passwort:</strong> <span id="otaPassword">••••••••</span></p>
-    </div>
-    <div class="card-action">
-      <a class="btn blue" id="otaExtendBtn">
-        <i class="material-icons left">timer</i> +10 Minuten
-      </a>
-      <a class="btn orange" id="otaRegenBtn">
-        <i class="material-icons left">vpn_key</i> Passwort neu generieren
-      </a>
-    </div>
-  </div>
+    <div id="cardsContainer" class="card-grid"></div>
 
+    <div id="graphsContainer" class="card-grid" style="margin-top:1rem;"></div>
 
-  <div class="card red lighten-4">
-    <div class="card-content">
-      <span class="card-title red-text">Zurücksetzen</span>
-      <p>Hier kannst du die gespeicherten WLAN-Zugangsdaten löschen. Danach startet der ESP32 im AP-Modus neu.</p>
+    <div id="dynamicButtons" class="card" style="margin-top:1rem; display:none;">
+      <div class="card-content">
+        <span class="card-title">Weitere Aktionen</span>
+        <div id="dynamicButtonsContainer"></div>
+      </div>
     </div>
-    <div class="card-action">
-      <a class="btn btn-danger" id="resetBtn"><i class="material-icons left">delete</i> Zurücksetzen</a>
+
+    <div class="card" style="margin-top:1rem;">
+      <div class="card-content">
+        <span class="card-title">🐛 WebSocket Debug</span>
+        <pre id="wsDebugLog" style="background:#263238; color:#aed581; padding:1rem; border-radius:4px; max-height:400px; overflow-y:auto; font-size:0.85rem; margin:0;"></pre>
+      </div>
+      <div class="card-action">
+        <a class="btn-small red" onclick="document.getElementById('wsDebugLog').textContent = ''">Clear</a>
+      </div>
     </div>
-  </div>
-  
-  <!-- Dynamic buttons injected from /admin/ui-config -->
-  <div id="dynamicButtons" class="card" style="margin-top:1rem; padding:1rem;">
-    <div class="card-content">
-      <span class="card-title">Weitere Aktionen</span>
-      <div id="dynamicButtonsContainer"></div>
-    </div>
-  </div>
   </div>
 
   <script src="/js/materialize.min.js"></script>
+  <script src="/js/chart.umd.min.js"></script>
   <script>
+    // --- State ---
+    const topicState = {};
+    let ws = null;
+    let isAuthorized = false;
+    const graphCharts = {}; // { graph_name: { chart, datasets: { label: data } } }
+
+    // --- Helpers ---
+    const byId = (id) => document.getElementById(id);
+    const formatTopic = (t) => t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
     function showLogin() {
-      document.getElementById('loginBox').style.display = 'block';
-      document.getElementById('mainContent').style.display = 'none';
+      byId('loginBox').style.display = 'block';
+      byId('mainContent').style.display = 'none';
+      byId('authBadge').textContent = 'Auth: erforderlich';
+      byId('authBadge').className = 'chip red lighten-4';
     }
 
     function showMain() {
-      document.getElementById('loginBox').style.display = 'none';
-      document.getElementById('mainContent').style.display = 'block';
+      byId('loginBox').style.display = 'none';
+      byId('mainContent').style.display = 'block';
+      byId('authBadge').textContent = 'Auth: ok';
+      byId('authBadge').className = 'chip green lighten-4';
     }
 
+    function unwrapField(raw) {
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        // Liste prüfen
+        if ('items' in raw && Array.isArray(raw.items)) {
+          return { kind: 'list', value: raw.items, raw };
+        }
+        // Button prüfen
+        if ('type' in raw && raw.type === 'button') {
+          return { kind: 'button', value: raw.id, raw };
+        }
+        // Secret prüfen (VarMeta) - leeres Textfeld anzeigen
+        if ('type' in raw && raw.type === 'secret') {
+          return { kind: 'string', value: '', raw };
+        }
+        // Verschachteltes Objekt mit 'value' auspacken
+        if ('value' in raw) return unwrapField(raw.value);
+      }
+      if (Array.isArray(raw)) return { kind: 'list', value: raw, raw };
+      if (typeof raw === 'boolean') return { kind: 'bool', value: raw, raw };
+      if (typeof raw === 'number') return { kind: 'number', value: raw, raw };
+      return { kind: 'string', value: raw == null ? '' : String(raw), raw };
+    }
+
+    function renderTopics() {
+      const container = byId('cardsContainer');
+      container.innerHTML = '';
+
+      Object.keys(topicState).sort().forEach((topic) => {
+        const data = topicState[topic];
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.topic = topic;
+
+        const content = document.createElement('div');
+        content.className = 'card-content';
+        const title = document.createElement('span');
+        title.className = 'card-title';
+        title.textContent = formatTopic(topic);
+        content.appendChild(title);
+
+        const fields = Object.keys(data);
+        if (fields.length === 0) {
+          const p = document.createElement('p');
+          p.textContent = 'Keine Daten verfügbar';
+          content.appendChild(p);
+        } else {
+          fields.forEach((key) => {
+            const info = unwrapField(data[key]);
+            const row = document.createElement('div');
+            row.className = 'setting-row';
+
+            // Check if it's a graph_xy_ring type
+            if (info.raw && info.raw.type === 'graph_xy_ring') {
+              renderGraph(topic, key, info.raw);
+              return; // Skip normal rendering
+            }
+
+            // Fallback: alles was nach Button aussieht als Button rendern
+            const isButtonKey = key.toLowerCase().includes('button');
+
+            if (info.kind === 'button' || isButtonKey) {
+              const btn = document.createElement('a');
+              btn.className = 'btn waves-effect waves-light orange';
+              btn.style.margin = '0.5rem 0';
+              btn.textContent = '▶ ' + key.replace(/_/g, ' ');
+              btn.onclick = () => triggerButton(topic, key);
+              row.appendChild(btn);
+            } else if (info.kind === 'list') {
+              const label = document.createElement('label');
+              label.textContent = key;
+              row.appendChild(label);
+
+              const ul = document.createElement('ul');
+              ul.className = 'value-list';
+              info.value.forEach((item) => {
+                const li = document.createElement('li');
+                li.textContent = item;
+                ul.appendChild(li);
+              });
+              row.appendChild(ul);
+            } else if (info.kind === 'bool') {
+              const label = document.createElement('label');
+              label.textContent = key;
+              row.appendChild(label);
+
+              const toggle = document.createElement('label');
+              const input = document.createElement('input');
+              input.type = 'checkbox';
+              input.checked = !!info.value;
+              input.dataset.field = key;
+              input.dataset.kind = 'bool';
+              const span = document.createElement('span');
+              toggle.appendChild(input);
+              toggle.appendChild(span);
+              row.appendChild(toggle);
+            } else {
+              const label = document.createElement('label');
+              label.textContent = key;
+              row.appendChild(label);
+
+              // Text oder Number Input (immer type="text" oder "number", nie "password")
+              const input = document.createElement('input');
+              input.type = info.kind === 'number' ? 'number' : 'text';
+              input.value = info.value;
+              input.className = 'browser-default';
+              input.dataset.field = key;
+              input.dataset.kind = info.kind;
+              row.appendChild(input);
+            }
+
+            content.appendChild(row);
+          });
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'card-action';
+        const saveBtn = document.createElement('a');
+        saveBtn.className = 'btn blue';
+        saveBtn.textContent = 'Speichern';
+        saveBtn.onclick = () => submitTopicUpdate(topic, card);
+        actions.appendChild(saveBtn);
+
+        card.appendChild(content);
+        card.appendChild(actions);
+        container.appendChild(card);
+      });
+    }
+
+    function submitTopicUpdate(topic, cardEl) {
+      const inputs = cardEl.querySelectorAll('[data-field]');
+      const payload = {};
+      inputs.forEach((el) => {
+        const key = el.dataset.field;
+        const kind = el.dataset.kind;
+        if (kind === 'bool') {
+          payload[key] = el.checked;
+        } else if (kind === 'number') {
+          const n = parseFloat(el.value);
+          payload[key] = isNaN(n) ? 0 : n;
+        } else {
+          payload[key] = el.value;
+        }
+      });
+
+      sendUpdate(topic, payload);
+    }
+
+    function sendUpdate(topic, data) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        M.toast({ html: 'WebSocket nicht verbunden', classes: 'red' });
+        return;
+      }
+      const msg = { topic, data };
+      ws.send(JSON.stringify(msg));
+      M.toast({ html: `Sende Update für ${topic}...`, classes: 'blue' });
+    }
+
+    function triggerButton(topic, button) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        M.toast({ html: 'WebSocket nicht verbunden', classes: 'red' });
+        return;
+      }
+      const msg = { action: 'button_trigger', topic, button };
+      console.log('[Button] Triggering:', msg);
+      ws.send(JSON.stringify(msg));
+      M.toast({ html: `Button "${button}" ausgelöst...`, classes: 'blue' });
+    }
+
+    // --- WebSocket handling ---
+    function connectWs() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${protocol}//${window.location.host}/ws`;
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        byId('wsBadge').textContent = 'WS: verbunden';
+        byId('wsBadge').className = 'chip connected';
+      };
+
+      ws.onclose = () => {
+        byId('wsBadge').textContent = 'WS: getrennt';
+        byId('wsBadge').className = 'chip disconnected';
+        setTimeout(connectWs, 2000);
+      };
+
+      ws.onerror = () => {
+        byId('wsBadge').textContent = 'WS: Fehler';
+        byId('wsBadge').className = 'chip red lighten-4';
+      };
+
+      ws.onmessage = (ev) => {
+        // Debug-Ausgabe
+        const debugLog = document.getElementById('wsDebugLog');
+        if (debugLog) {
+          const timestamp = new Date().toLocaleTimeString('de-DE');
+          debugLog.textContent += `[${timestamp}] ← ${ev.data}\n`;
+          debugLog.scrollTop = debugLog.scrollHeight;
+        }
+
+        try {
+          const msg = JSON.parse(ev.data);
+          
+          // Handle graph_point messages
+          if (msg.topic === 'graph_point' && msg.data) {
+            handleGraphPoint(msg.data);
+            return;
+          }
+          
+          if (!msg.topic) return;
+          topicState[msg.topic] = msg.data || {};
+          renderTopics();
+        } catch (e) {
+          console.error('WS parse error', e);
+        }
+      };
+    }
+
+    // --- Graph rendering ---
+    function renderGraph(topic, key, graphData) {
+      const graphName = graphData.graph || 'unknown';
+      const label = graphData.label || key;
+      const maxCount = graphData.max_count || 60;
+      
+      // Get or create graph container
+      let graphContainer = byId(`graph-${graphName}`);
+      if (!graphContainer) {
+        graphContainer = document.createElement('div');
+        graphContainer.id = `graph-${graphName}`;
+        graphContainer.className = 'card';
+        graphContainer.style.marginTop = '1rem';
+        
+        const content = document.createElement('div');
+        content.className = 'card-content';
+        
+        const title = document.createElement('span');
+        title.className = 'card-title';
+        title.textContent = `📊 ${formatTopic(graphName)}`;
+        content.appendChild(title);
+        
+        const chartWrapper = document.createElement('div');
+        chartWrapper.style.position = 'relative';
+        chartWrapper.style.height = '200px';
+        chartWrapper.style.width = '100%';
+        
+        const canvas = document.createElement('canvas');
+        canvas.id = `chart-${graphName}`;
+        chartWrapper.appendChild(canvas);
+        content.appendChild(chartWrapper);
+        
+        graphContainer.appendChild(content);
+        byId('graphsContainer').appendChild(graphContainer);
+        
+        // Initialize Chart.js
+        const ctx = canvas.getContext('2d');
+        graphCharts[graphName] = {
+          chart: new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: [],
+              datasets: []
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              animation: { duration: 200 },
+              scales: {
+                x: { display: true, title: { display: true, text: 'Zeit' } },
+                y: { 
+                  display: true, 
+                  title: { display: true, text: 'Wert' },
+                  beginAtZero: false
+                }
+              },
+              plugins: {
+                legend: { display: true, position: 'top' }
+              }
+            }
+          }),
+          datasets: {},
+          maxCount: maxCount
+        };
+      }
+      
+      const graphInfo = graphCharts[graphName];
+      
+      // Update max_count if changed
+      if (graphData.max_count) {
+        graphInfo.maxCount = graphData.max_count;
+      }
+      
+      // Add or update dataset for this label
+      if (!graphInfo.datasets[label]) {
+        const colors = ['#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4'];
+        const colorIndex = Object.keys(graphInfo.datasets).length % colors.length;
+        
+        graphInfo.datasets[label] = {
+          label: label,
+          data: [],
+          borderColor: colors[colorIndex],
+          backgroundColor: colors[colorIndex] + '20',
+          borderWidth: 2,
+          tension: 0.3,
+          fill: true
+        };
+        
+        graphInfo.chart.data.datasets.push(graphInfo.datasets[label]);
+      }
+      
+      // Load initial values if present
+      if (graphData.values && Array.isArray(graphData.values)) {
+        const dataset = graphInfo.datasets[label];
+        dataset.data = [];
+        graphInfo.chart.data.labels = [];
+        
+        graphData.values.forEach((point, idx) => {
+          const timestamp = point.x ? new Date(point.x).toLocaleTimeString('de-DE') : idx.toString();
+          if (graphInfo.chart.data.labels.length < graphData.values.length) {
+            graphInfo.chart.data.labels.push(timestamp);
+          }
+          dataset.data.push(point.y);
+        });
+        
+        graphInfo.chart.update();
+      }
+    }
+    
+    function handleGraphPoint(data) {
+      if (!data.graph || !data.label) return;
+      
+      const graphName = data.graph;
+      const label = data.label;
+      const graphInfo = graphCharts[graphName];
+      
+      if (!graphInfo) {
+        console.warn('Graph not initialized:', graphName);
+        return;
+      }
+      
+      const timestamp = data.x ? new Date(data.x).toLocaleTimeString('de-DE') : new Date().toLocaleTimeString('de-DE');
+      const value = data.y;
+      
+      // Ensure dataset exists
+      if (!graphInfo.datasets[label]) {
+        console.warn('Dataset not initialized:', label, 'in graph:', graphName);
+        return;
+      }
+      
+      const dataset = graphInfo.datasets[label];
+      
+      // Add new point
+      graphInfo.chart.data.labels.push(timestamp);
+      dataset.data.push(value);
+      
+      // Remove old points if exceeds max_count
+      const maxCount = graphInfo.maxCount || 60;
+      if (graphInfo.chart.data.labels.length > maxCount) {
+        graphInfo.chart.data.labels.shift();
+        // Shift data for all datasets
+        Object.values(graphInfo.datasets).forEach(ds => {
+          if (ds.data.length > maxCount) {
+            ds.data.shift();
+          }
+        });
+      }
+      
+      graphInfo.chart.update();
+    }
+
+    // --- HTTP Auth check & login ---
     function fetchStatus() {
-      return fetch('/status').then(r => {
+      return fetch('/status').then((r) => {
         if (r.status === 401) {
+          isAuthorized = false;
           showLogin();
           throw new Error('unauthorized');
         }
@@ -113,133 +496,83 @@
       });
     }
 
-    fetchStatus()
-      .then(data => {
-        showMain();
-        document.getElementById('ssid').textContent = data.ssid || '-';
-        document.getElementById('ip').textContent = data.ip || '-';
-        document.getElementById('mdns').textContent = data.mdns || '-';
+    function handleLogin() {
+      const pw = byId('adminPw').value;
+      fetch('/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw })
       })
-      .catch(err => {
-        if (err.message !== 'unauthorized') console.error("Fehler beim Laden des Status:", err);
-      });
-
-    function loadOtaStatus() {
-      fetch('/ota/status')
-        .then(r => r.json())
-        .then(data => {
-          document.getElementById('otaEnabled').textContent = (data.enabled ? "aktiv" : "aus");
-          document.getElementById('otaHost').textContent = data.host || '-';
-          document.getElementById('otaPort').textContent = (data.port != null ? data.port : '-');
-          document.getElementById('otaWindow').textContent = (data.windowSeconds != null ? (data.windowSeconds + " s") : '-');
-          document.getElementById('otaRemaining').textContent = (data.remainingSeconds != null ? (data.remainingSeconds + " s") : '-');
-          document.getElementById('otaPassword').textContent = (data.password && data.password.length ? data.password : "••••••••");
-        })
-        .catch(err => console.error("Fehler beim Laden des OTA-Status:", err));
-    }
-
-    loadOtaStatus();
-    setInterval(loadOtaStatus, 5000);
-
-    // login flow
-    document.getElementById('loginBtn').onclick = () => {
-      const pw = document.getElementById('adminPw').value;
-      fetch('/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: pw }) })
-        .then(r => r.json())
-        .then(res => {
+        .then((r) => r.json())
+        .then((res) => {
           if (res.ok) {
+            isAuthorized = true;
+            showMain();
             M.toast({ html: 'Login erfolgreich', classes: 'green' });
-            // After successful login, reload status and OTA
-            fetchStatus().then(data => {
-              document.getElementById('ssid').textContent = data.ssid || '-';
-              document.getElementById('ip').textContent = data.ip || '-';
-              document.getElementById('mdns').textContent = data.mdns || '-';
-              loadOtaStatus();
-              showMain();
-            }).catch(()=>{});
           } else {
             M.toast({ html: 'Login fehlgeschlagen', classes: 'red' });
           }
         })
-        .catch(err => { M.toast({ html: 'Fehler', classes: 'red' }); console.error(err); });
-    };
+        .catch(() => M.toast({ html: 'Fehler beim Login', classes: 'red' }));
+    }
 
-    document.getElementById('otaExtendBtn').onclick = () => {
-      fetch('/ota/extend', { method: 'POST' })
-        .then(r => {
-          if (!r.ok) throw new Error("extend failed");
-          M.toast({ html: "OTA-Window is refreshed", classes: "blue" });
-          loadOtaStatus();
-        })
-        .catch(err => {
-          M.toast({ html: "Error: OTA-Window is not refreshed", classes: "red" });
-          console.error(err);
-        });
-    };
-
-    document.getElementById('otaRegenBtn').onclick = () => {
-      if (confirm("Generate new OTA-password?")) {
-        fetch('/ota/regenerate-password', { method: 'POST' })
-          .then(r => {
-            if (!r.ok) throw new Error("regen failed");
-            M.toast({ html: "Generated new password", classes: "orange" });
-            loadOtaStatus();
-          })
-          .catch(err => {
-            M.toast({ html: "Error: Cannot generate new password", classes: "red" });
-            console.error(err);
-          });
-      }
-    };
-
-    document.getElementById('resetBtn').onclick = () => {
-      if (confirm("Wirklich zurücksetzen und neu starten?")) {
-        fetch('/reset', { method: 'POST' })
-          .then(() => {
-            M.toast({ html: "Zurückgesetzt. ESP32 startet neu...", classes: "red" });
-          })
-          .catch(err => {
-            M.toast({ html: "Fehler beim Zurücksetzen", classes: "red" });
-            console.error(err);
-          });
-      }
-    };
-
-    // load dynamic buttons from server-side UI config
+    // --- Dynamic buttons (optional server config) ---
     function loadDynamicButtons() {
       fetch('/admin/ui-config')
-        .then(r => r.json())
-        .then(cfg => {
-          const container = document.getElementById('dynamicButtonsContainer');
+        .then((r) => r.json())
+        .then((cfg) => {
+          const hostCard = byId('dynamicButtons');
+          const container = byId('dynamicButtonsContainer');
           container.innerHTML = '';
-          if (!cfg || !Array.isArray(cfg.buttons)) return;
-          cfg.buttons.forEach(btn => {
+          if (!cfg || !Array.isArray(cfg.buttons) || !cfg.buttons.length) {
+            hostCard.style.display = 'none';
+            return;
+          }
+          hostCard.style.display = 'block';
+          cfg.buttons.forEach((btn) => {
             const a = document.createElement('a');
             a.className = 'btn';
             a.style.margin = '0.25rem';
             a.textContent = btn.label || btn.id || 'Action';
             a.onclick = () => {
-              const doAction = () => {
-                fetch(btn.path, { method: (btn.method||'GET') })
-                  .then(r => {
+              const run = () => {
+                fetch(btn.path, { method: btn.method || 'GET' })
+                  .then((r) => {
                     if (!r.ok) throw new Error('request failed');
-                    M.toast({ html: (btn.label || 'Action') + ' ausgeführt', classes: 'green' });
+                    M.toast({ html: `${a.textContent} ausgeführt`, classes: 'green' });
                   })
-                  .catch(err => { M.toast({ html: 'Fehler', classes: 'red' }); console.error(err); });
+                  .catch(() => M.toast({ html: 'Fehler', classes: 'red' }));
               };
               if (btn.confirm) {
-                if (confirm(btn.confirm === true ? 'Ausführen?' : btn.confirm)) doAction();
+                if (confirm(btn.confirm === true ? 'Ausführen?' : btn.confirm)) run();
               } else {
-                doAction();
+                run();
               }
             };
             container.appendChild(a);
           });
         })
-        .catch(err => { console.warn('No UI config', err); });
+        .catch(() => {});
     }
 
-    loadDynamicButtons();
+    // --- Init ---
+    document.addEventListener('DOMContentLoaded', () => {
+      connectWs();
+      loadDynamicButtons();
+
+      byId('loginBtn').onclick = handleLogin;
+
+      fetchStatus()
+        .then(() => {
+          isAuthorized = true;
+          showMain();
+        })
+        .catch((err) => {
+          if (err.message !== 'unauthorized') {
+            console.warn('Status konnte nicht geladen werden', err);
+          }
+        });
+    });
   </script>
 </body>
 

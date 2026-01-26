@@ -1,17 +1,31 @@
 #pragma once
 #include <Arduino.h>
 #include <cstring>
+#include <functional>
 #include "ModelSerializer.h"
 #include "ModelTypeTraits.h"
 
 struct Button {
   int id;
-  Button() : id(0) {}
-  Button(int _id) : id(_id) {}
+  std::function<void()> callback;
 
+  Button() : id(0), callback(nullptr) {}
+  Button(int _id) : id(_id), callback(nullptr) {}
+  Button(int _id, std::function<void()> cb) : id(_id), callback(cb) {}
+
+  // Register a callback to be called when button is triggered
+  void setCallback(std::function<void()> cb) {
+    callback = cb;
+  }
+
+  // Trigger the button (calls registered callback if available)
   void on_trigger() {
-    Serial.print("Button triggered, id=");
-    Serial.println(id);
+    if (callback) {
+      callback();
+    } else {
+      Serial.print("Button triggered (no callback), id=");
+      Serial.println(id);
+    }
   }
 
   // Convenient conversions and comparisons
@@ -25,7 +39,9 @@ namespace fj {
 // Direct field serialization support (for fields not wrapped in Var<>)
 template <typename T>
 inline void writeOne(const T& obj, const Field<T, Button>& f, JsonObject out) {
-  out[f.key] = (obj.*(f.member)).id;
+  JsonObject btnObj = out.createNestedObject(f.key);
+  btnObj["type"] = "button";
+  btnObj["id"] = (obj.*(f.member)).id;
 }
 
 template <typename T>

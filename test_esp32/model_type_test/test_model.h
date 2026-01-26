@@ -45,8 +45,8 @@ void testStaticStringPersistence() {
   settings.password = "SecretPass123";
   
   // Verify values are set
-  TEST_ASSERT(strcmp(settings.name.get().c_str(), "TestUser") == 0, "Name should be 'TestUser'");
-  TEST_ASSERT(strcmp(settings.password.get().c_str(), "SecretPass123") == 0, "Password should be 'SecretPass123'");
+  CUSTOM_ASSERT(strcmp(settings.name.get().c_str(), "TestUser") == 0, "Name should be 'TestUser'");
+  CUSTOM_ASSERT(strcmp(settings.password.get().c_str(), "SecretPass123") == 0, "Password should be 'SecretPass123'");
   
   // Serialize to JSON
   StaticJsonDocument<512> doc;
@@ -68,7 +68,7 @@ void testStaticStringPersistence() {
   String loadedJson = prefs.getString("settings", "");
   prefs.end();
   
-  TEST_ASSERT(loadedJson.length() > 0, "Loaded JSON should not be empty");
+  CUSTOM_ASSERT(loadedJson.length() > 0, "Loaded JSON should not be empty");
   
   // Deserialize
   StaticJsonDocument<512> loadedDoc;
@@ -105,7 +105,7 @@ void testStaticStringPersistence() {
   Serial.println("'");
   
   bool readSuccess = fj::readFieldsTolerant(loadedSettings, TestSettings::schema(), loadedRoot);
-  TEST_ASSERT(readSuccess, "Reading should succeed");
+  CUSTOM_ASSERT(readSuccess, "Reading should succeed");
   
   Serial.println("After readFieldsTolerant:");
   Serial.print("  loadedSettings.name = '");
@@ -116,8 +116,8 @@ void testStaticStringPersistence() {
   Serial.println("'");
   
   // Verify loaded values
-  TEST_ASSERT(strcmp(loadedSettings.name.get().c_str(), "TestUser") == 0, "Loaded name should match");
-  TEST_ASSERT(strcmp(loadedSettings.password.get().c_str(), "SecretPass123") == 0, "Loaded password should match");
+  CUSTOM_ASSERT(strcmp(loadedSettings.name.get().c_str(), "TestUser") == 0, "Loaded name should match");
+  CUSTOM_ASSERT(strcmp(loadedSettings.password.get().c_str(), "SecretPass123") == 0, "Loaded password should match");
   
   // Cleanup
   prefs.begin(TEST_NS, false);
@@ -135,10 +135,10 @@ void testVarImplicitConversion() {
   
   // Test implicit conversion to const char*
   const char* namePtr = settings.name;
-  TEST_ASSERT(strcmp(namePtr, "Alice") == 0, "Implicit conversion should work");
+  CUSTOM_ASSERT(strcmp(namePtr, "Alice") == 0, "Implicit conversion should work");
   
   // Test c_str() method
-  TEST_ASSERT(strcmp(settings.name.c_str(), "Alice") == 0, "c_str() should work");
+  CUSTOM_ASSERT(strcmp(settings.name.c_str(), "Alice") == 0, "c_str() should work");
   
   TEST_END();
 }
@@ -150,17 +150,17 @@ void testVarAssignment() {
   
   // Test const char* assignment
   settings.name = "Bob";
-  TEST_ASSERT(strcmp(settings.name.get().c_str(), "Bob") == 0, "Assignment from const char* should work");
+  CUSTOM_ASSERT(strcmp(settings.name.get().c_str(), "Bob") == 0, "Assignment from const char* should work");
   
   // Test String assignment
   String testStr = "Charlie";
   settings.name = testStr;
-  TEST_ASSERT(strcmp(settings.name.get().c_str(), "Charlie") == 0, "Assignment from String should work");
+  CUSTOM_ASSERT(strcmp(settings.name.get().c_str(), "Charlie") == 0, "Assignment from String should work");
   
   // Test copy from another Var
   TestSettings settings2;
   settings2.name = settings.name.get();
-  TEST_ASSERT(strcmp(settings2.name.get().c_str(), "Charlie") == 0, "Copy should work");
+  CUSTOM_ASSERT(strcmp(settings2.name.get().c_str(), "Charlie") == 0, "Copy should work");
   
   TEST_END();
 }
@@ -181,8 +181,8 @@ void testSecretNeverLeaks() {
   Serial.println("WS Serialized: " + json);
   
   // Check that password value is NOT in JSON
-  TEST_ASSERT(json.indexOf("SuperSecret") == -1, "Secret value should NOT appear in WS output");
-  TEST_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "Type should be indicated");
+  CUSTOM_ASSERT(json.indexOf("SuperSecret") == -1, "Secret value should NOT appear in WS output");
+  CUSTOM_ASSERT(json.indexOf("\"type\":\"secret\"") > 0, "Type should be indicated");
   
   // Now serialize for Prefs (SHOULD include value)
   StaticJsonDocument<512> docPrefs;
@@ -194,7 +194,7 @@ void testSecretNeverLeaks() {
   Serial.println("Prefs Serialized: " + jsonPrefs);
   
   // Check that password value IS in Prefs JSON
-  TEST_ASSERT(jsonPrefs.indexOf("SuperSecret") > 0, "Secret value SHOULD appear in Prefs output");
+  CUSTOM_ASSERT(jsonPrefs.indexOf("SuperSecret") > 0, "Secret value SHOULD appear in Prefs output");
   
   TEST_END();
 }

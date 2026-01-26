@@ -6,7 +6,14 @@
 #include "model_type_test/test_list.h"
 #include "model_type_test/test_var_modes.h"
 #include "model_type_test/test_serializer.h"
+#include "model_type_test/test_point_ring_buffer.h"
+#include "model_type_test/test_graph_var_sync.h"
 #include "model_type_test/test_wifi_integration.h"
+#include "button_system_test.h"
+
+// Forward declarations for button and password tests
+namespace ButtonSystemTest { void runAllTests(); }
+namespace ModelPasswordTest { void runAllTests(); }
 
 void clearAllPreferences() {
   Serial.println("[CLEANUP] Clearing all NVS partitions...");
@@ -33,7 +40,7 @@ void setup() {
   // LogLevel::INFO  - General information (default)
   // LogLevel::WARN  - Warnings only
   // LogLevel::ERROR - Errors only
-  Logger::setLevel(LogLevel::TRACE);
+  Logger::setLevel(LogLevel::INFO);
   
   LOG_INFO("========================================");
   LOG_INFO("ESP32 Test Suite Starting...");
@@ -53,6 +60,10 @@ void setup() {
   ModelTypeTest::runAllTests();
   ListTest::runAllTests();
   VarModesTest::runAllTests();
+  PointRingBufferTest::runAllTests();
+  GraphVarSyncTest::runAllTests();
+  ButtonSystemTest::runAllTests();
+  ModelPasswordTest::runAllTests();
   // WiFi integration tests  
   WiFiIntegrationTest::simulateWiFiScan();
   WiFiIntegrationTest::testWiFiSettingsPersistence();

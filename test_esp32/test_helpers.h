@@ -11,8 +11,8 @@ struct TestStats {
 
 extern TestStats globalTestStats;
 
-// Simple test macros
-#define TEST_ASSERT(condition, message) \
+// Simple test macros (using custom names to avoid conflict with Unity framework)
+#define CUSTOM_ASSERT(condition, message) \
   do { \
     if (!(condition)) { \
       Serial.print("❌ FAIL: "); \

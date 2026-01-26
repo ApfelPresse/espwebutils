@@ -11,7 +11,7 @@
 
 class ModelBase {
 public:
-  static const size_t JSON_CAPACITY = 512;
+  static const size_t JSON_CAPACITY = 2048;  // Large enough for graph data with 16+ points
 
   ModelBase(uint16_t port, const char* wsPath)
   : server_(port), ws_(wsPath) {}
@@ -64,6 +64,7 @@ public:
   }
 
   void sendGraphPointXY(const char* graph, const char* label, uint64_t x, float y, bool synced) {
+    LOG_DEBUG_F("[WS] Sending graph_point: graph=%s, label=%s, x=%llu, y=%.2f", graph, label, x, y);
     StaticJsonDocument<256> doc;
     doc["topic"] = "graph_point";
     JsonObject d = doc.createNestedObject("data");
@@ -75,10 +76,13 @@ public:
 
     String out;
     serializeJson(doc, out);
+    LOG_TRACE_F("[WS] Graph point JSON: %s", out.c_str());
     ws_.textAll(out);
   }
 
   static void graphPushCbXY(const char* graph, const char* label, uint64_t x, float y, void* ctx) {
+    LOG_TRACE_F("[CALLBACK] graphPushCbXY called: graph=%s, label=%s, x=%llu, y=%.2f, ctx=%p", 
+                graph, label, x, y, ctx);
     if (!ctx) return;
     ModelBase* self = (ModelBase*)ctx;
     self->sendGraphPointXY(graph, label, x, y, true);
@@ -320,6 +324,21 @@ private:
       return;
     }
 
+    // Check if this is a button trigger request
+    const char* action = doc["action"];
+    if (action && strcmp(action, "button_trigger") == 0) {
+      const char* topic = doc["topic"];
+      const char* button = doc["button"];
+      if (!topic || !button) {
+        LOG_WARN("[WS] button_trigger: missing topic or button field");
+        client->text(R"({"ok":false,"error":"missing_topic_or_button"})");
+        return;
+      }
+      LOG_INFO_F("[WS] Button trigger request: topic=%s, button=%s", topic, button);
+      handleButtonTrigger(client, topic, button);
+      return;
+    }
+
     const char* topic = doc["topic"];
     JsonVariant data = doc["data"];
     LOG_DEBUG_F("[WS] Parsed topic: %s", topic ? topic : "null");
@@ -358,6 +377,12 @@ private:
     LOG_TRACE("[WS] Sending confirmation back to client");
     client->text(R"({"ok":true})");
     broadcastTopic(topic);
+  }
+
+  // Handle button trigger requests (override in derived classes)
+  virtual void handleButtonTrigger(AsyncWebSocketClient* client, const char* topic, const char* button) {
+    LOG_WARN_F("[WS] Button trigger not implemented: topic=%s, button=%s", topic, button);
+    client->text(R"({"ok":false,"error":"button_trigger_not_implemented"})");
   }
   
 };

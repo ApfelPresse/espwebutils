@@ -76,9 +76,9 @@ void simulateWiFiScan() {
   wifi.available_networks.get().add(StringBuffer<32>("OfficeWiFi"));
   wifi.available_networks.get().add(StringBuffer<32>("GuestNetwork"));
   
-  TEST_ASSERT(wifi.available_networks.get().size() == 3, "Should have 3 networks");
-  TEST_ASSERT(strcmp(wifi.available_networks.get()[0].c_str(), "HomeNetwork") == 0, "First network should be HomeNetwork");
-  TEST_ASSERT(strcmp(wifi.available_networks.get()[1].c_str(), "OfficeWiFi") == 0, "Second network should be OfficeWiFi");
+  CUSTOM_ASSERT(wifi.available_networks.get().size() == 3, "Should have 3 networks");
+  CUSTOM_ASSERT(strcmp(wifi.available_networks.get()[0].c_str(), "HomeNetwork") == 0, "First network should be HomeNetwork");
+  CUSTOM_ASSERT(strcmp(wifi.available_networks.get()[1].c_str(), "OfficeWiFi") == 0, "Second network should be OfficeWiFi");
   
   TEST_END();
 }
@@ -101,17 +101,17 @@ void testWiFiSettingsPersistence() {
   Serial.print("Prefs JSON: ");
   Serial.println(json);
   
-  TEST_ASSERT(json.indexOf("MyNetwork") > 0, "Preferences should contain SSID");
-  TEST_ASSERT(json.indexOf("MyPassword123") > 0, "Preferences should contain password");
+  CUSTOM_ASSERT(json.indexOf("MyNetwork") > 0, "Preferences should contain SSID");
+  CUSTOM_ASSERT(json.indexOf("MyPassword123") > 0, "Preferences should contain password");
   
   // Deserialize back
   StaticJsonDocument<512> loadDoc;
   deserializeJson(loadDoc, json);
   
   bool success = fj::readFieldsTolerant(wifi2, WifiSettings::schema(), loadDoc.as<JsonObject>());
-  TEST_ASSERT(success, "Deserialization should succeed");
-  TEST_ASSERT(strcmp(wifi2.ssid.c_str(), "MyNetwork") == 0, "SSID should be restored");
-  TEST_ASSERT(strcmp(wifi2.pass.c_str(), "MyPassword123") == 0, "Password should be restored");
+  CUSTOM_ASSERT(success, "Deserialization should succeed");
+  CUSTOM_ASSERT(strcmp(wifi2.ssid.c_str(), "MyNetwork") == 0, "SSID should be restored");
+  CUSTOM_ASSERT(strcmp(wifi2.pass.c_str(), "MyPassword123") == 0, "Password should be restored");
   
   TEST_END();
 }
@@ -136,11 +136,11 @@ void testWiFiWebSocketSerialization() {
   Serial.println(json);
   
   // SSID should be visible (VarWsPrefsRw)
-  TEST_ASSERT(json.indexOf("PublicNetwork") > 0, "SSID should be in WS output");
+  CUSTOM_ASSERT(json.indexOf("PublicNetwork") > 0, "SSID should be in WS output");
   
   // Password should NOT be visible in WS (VarMetaPrefsRw shows only metadata)
-  TEST_ASSERT(json.indexOf("SecretPassword") == -1, "Password should NOT be in WS output");
-  TEST_ASSERT(json.indexOf("secret") > 0, "Should show meta type indicator");
+  CUSTOM_ASSERT(json.indexOf("SecretPassword") == -1, "Password should NOT be in WS output");
+  CUSTOM_ASSERT(json.indexOf("secret") > 0, "Should show meta type indicator");
   
   // available_networks will be serialized via TypeAdapter now (VarWsRo)
   
@@ -162,9 +162,9 @@ void testWiFiSettingsUpdate() {
   
   bool success = fj::readFieldsTolerant(wifi, WifiSettingsMinimal::schema(), doc.as<JsonObject>());
   
-  TEST_ASSERT(success, "Update should succeed");
-  TEST_ASSERT(strcmp(wifi.ssid.c_str(), "NewNetwork") == 0, "SSID should update");
-  TEST_ASSERT(strcmp(wifi.pass.c_str(), "NewPassword") == 0, "Password should update");
+  CUSTOM_ASSERT(success, "Update should succeed");
+  CUSTOM_ASSERT(strcmp(wifi.ssid.c_str(), "NewNetwork") == 0, "SSID should update");
+  CUSTOM_ASSERT(strcmp(wifi.pass.c_str(), "NewPassword") == 0, "Password should update");
   
   TEST_END();
 }
@@ -178,13 +178,13 @@ void testAvailableNetworksReadOnly() {
   // Direct manipulation of the list
   wifi.available_networks.get().add(StringBuffer<32>("TestNetwork"));
   
-  TEST_ASSERT(wifi.available_networks.get().size() == 1, "Should have 1 network");
-  TEST_ASSERT(strcmp(wifi.available_networks.get()[0].c_str(), "TestNetwork") == 0, "Network should be TestNetwork");
+  CUSTOM_ASSERT(wifi.available_networks.get().size() == 1, "Should have 1 network");
+  CUSTOM_ASSERT(strcmp(wifi.available_networks.get()[0].c_str(), "TestNetwork") == 0, "Network should be TestNetwork");
   
   // Note: available_networks is read-only from JSON perspective
   // The internal list can still be manipulated directly
   wifi.available_networks.get().add(StringBuffer<32>("SecondNetwork"));
-  TEST_ASSERT(wifi.available_networks.get().size() == 2, "Should be able to add directly");
+  CUSTOM_ASSERT(wifi.available_networks.get().size() == 2, "Should be able to add directly");
   
   TEST_END();
 }
@@ -215,10 +215,10 @@ void testAvailableNetworksSerialization() {
   Serial.println(json);
   
   // Verify the serialized structure contains our networks
-  TEST_ASSERT(json.indexOf("WiFi-A") > 0, "Should contain WiFi-A");
-  TEST_ASSERT(json.indexOf("WiFi-B") > 0, "Should contain WiFi-B");
-  TEST_ASSERT(json.indexOf("WiFi-C") > 0, "Should contain WiFi-C");
-  TEST_ASSERT(json.indexOf("items") > 0, "Should have items array");
+  CUSTOM_ASSERT(json.indexOf("WiFi-A") > 0, "Should contain WiFi-A");
+  CUSTOM_ASSERT(json.indexOf("WiFi-B") > 0, "Should contain WiFi-B");
+  CUSTOM_ASSERT(json.indexOf("WiFi-C") > 0, "Should contain WiFi-C");
+  CUSTOM_ASSERT(json.indexOf("items") > 0, "Should have items array");
   
   TEST_END();
 }
@@ -237,9 +237,9 @@ void testWiFiModelIntegration() {
   wifi.available_networks.get().add(StringBuffer<32>("Network1"));
   wifi.available_networks.get().add(StringBuffer<32>("Network2"));
   
-  TEST_ASSERT(strcmp(wifi.ssid.c_str(), "ConnectedNetwork") == 0, "SSID should be set");
-  TEST_ASSERT(strcmp(wifi.pass.c_str(), "ConnectedPass") == 0, "Pass should be set");
-  TEST_ASSERT(wifi.available_networks.get().size() == 2, "WiFiSettings should have 2 networks");
+  CUSTOM_ASSERT(strcmp(wifi.ssid.c_str(), "ConnectedNetwork") == 0, "SSID should be set");
+  CUSTOM_ASSERT(strcmp(wifi.pass.c_str(), "ConnectedPass") == 0, "Pass should be set");
+  CUSTOM_ASSERT(wifi.available_networks.get().size() == 2, "WiFiSettings should have 2 networks");
   
   TEST_END();
 }
