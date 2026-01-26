@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <cstring>
 
-#include "../Logger.h"
+#include "Logger.h"
 #include "Schema.h"
 #include "PrefsDispatch.h"
 #include "ReadDispatch.h"

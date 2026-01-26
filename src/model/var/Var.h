@@ -5,7 +5,7 @@
 #include <functional>
 #include <utility>
 
-#include "../Logger.h"
+#include "Logger.h"
 #include "VarPolicy.h"
 #include "VarTraits.h"
 #include "VarJsonDispatch.h"

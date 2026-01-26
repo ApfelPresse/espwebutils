@@ -3,7 +3,7 @@
 #include <ArduinoJson.h>
 #include <type_traits>
 
-#include "../Logger.h"
+#include "Logger.h"
 #include "../var/VarTraits.h"
 
 namespace fj {

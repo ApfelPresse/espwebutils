@@ -4,7 +4,7 @@
 #include <type_traits>
 #include <cstring>
 
-#include "../Logger.h"
+#include "Logger.h"
 #include "VarTraits.h"
 
 namespace fj {
