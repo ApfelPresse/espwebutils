@@ -34,6 +34,12 @@ public:
 
   static void graphPushCbXY(const char* graph, const char* label, uint64_t x, float y, void* ctx);
 
+#ifdef TEST_BUILD
+  // Test hook: allows exercising the WS message parsing/update path without needing a real AsyncWebSocketClient.
+  // Returns true if the message was parsed and applied successfully.
+  bool testHandleWsMessage(const char* msg, size_t len);
+#endif
+
 protected:
   virtual void on_update(const char* topic) { (void)topic; }
 
@@ -55,6 +61,9 @@ private:
     void (*makePrefsJson)(void* objPtr, JsonObject out);
 
     bool (*applyUpdate)(void* objPtr, const String& dataJson, bool strict);
+
+    // WS update path: apply already-parsed data object (avoids serializeJson + deserializeJson churn)
+    bool (*applyUpdateJson)(void* objPtr, JsonObject data, bool strict);
   };
 
   static const size_t MAX_TOPICS = 16;
@@ -98,8 +107,11 @@ private:
   template <typename T>
   static bool applyUpdateImpl(void* objPtr, const String& dataJson, bool strict);
 
+  template <typename T>
+  static bool applyUpdateJsonImpl(void* objPtr, JsonObject data, bool strict);
+
   void onWsEvent(AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len);
-  void handleIncoming(AsyncWebSocketClient* client, const String& msg);
+  bool handleIncoming(AsyncWebSocketClient* client, const char* msg, size_t len);
 
   // Handle button trigger requests (override in derived classes)
   virtual void handleButtonTrigger(AsyncWebSocketClient* client, const char* topic, const char* button);

@@ -82,10 +82,28 @@ void testStaticStringPersistence() {
   TEST_TRACE_F("JSON has 'name': %s", loadedRoot.containsKey("name") ? "yes" : "no");
   TEST_TRACE_F("JSON has 'password': %s", loadedRoot.containsKey("password") ? "yes" : "no");
   if (loadedRoot.containsKey("name")) {
-    TEST_TRACE_F("name value in JSON: '%s'", loadedRoot["name"].as<const char*>());
+    JsonVariant v = loadedRoot["name"];
+    if (v.is<const char*>()) {
+      const char* s = v.as<const char*>();
+      TEST_TRACE_F("name value in JSON: '%s'", s ? s : "(null)");
+    } else if (v.is<JsonObject>() && v.as<JsonObject>().containsKey("value")) {
+      const char* s = v.as<JsonObject>()["value"].as<const char*>();
+      TEST_TRACE_F("name.value in JSON: '%s'", s ? s : "(null)");
+    } else {
+      TEST_TRACE_F("name in JSON is not a string");
+    }
   }
   if (loadedRoot.containsKey("password")) {
-    TEST_TRACE_F("password value in JSON: '%s'", loadedRoot["password"].as<const char*>());
+    JsonVariant v = loadedRoot["password"];
+    if (v.is<const char*>()) {
+      const char* s = v.as<const char*>();
+      TEST_TRACE_F("password value in JSON: '%s'", s ? s : "(null)");
+    } else if (v.is<JsonObject>() && v.as<JsonObject>().containsKey("value")) {
+      const char* s = v.as<JsonObject>()["value"].as<const char*>();
+      TEST_TRACE_F("password.value in JSON: '%s'", s ? s : "(null)");
+    } else {
+      TEST_TRACE_F("password in JSON is not a string");
+    }
   }
   
   TEST_TRACE_F("Before readFieldsTolerant: name='%s'", loadedSettings.name.get().c_str());

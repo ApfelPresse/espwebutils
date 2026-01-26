@@ -9,6 +9,7 @@
 #include "model_type_test/test_point_ring_buffer.h"
 #include "model_type_test/test_graph_var_sync.h"
 #include "model_type_test/test_modelbase_prefs.h"
+#include "model_type_test/test_modelbase_ws_update.h"
 #include "model_type_test/test_wifi_integration.h"
 #include "button_system_test.h"
 
@@ -41,7 +42,7 @@ void setup() {
   // LogLevel::INFO  - General information (default)
   // LogLevel::WARN  - Warnings only
   // LogLevel::ERROR - Errors only
-  Logger::setLevel(LogLevel::INFO);
+  Logger::setLevel(LogLevel::TRACE);
   
   LOG_INFO("========================================");
   LOG_INFO("ESP32 Test Suite Starting...");
@@ -60,6 +61,7 @@ void setup() {
   PointRingBufferTest::runAllTests();
   GraphVarSyncTest::runAllTests();
   ModelBasePrefsTest::runAllTests();
+  ModelBaseWsUpdateTest::runAllTests();
   ButtonSystemTest::runAllTests();
   ModelPasswordTest::runAllTests();
   // WiFi integration tests  

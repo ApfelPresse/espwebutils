@@ -46,7 +46,15 @@ inline bool ModelBase::loadEntry(Entry& e) {
   LOG_TRACE_F("[ModelBase] About to call e.applyUpdate for topic '%s'", e.topic);
   bool result = e.applyUpdate(e.objPtr, dataJson, false);
   LOG_TRACE_F("[ModelBase] applyUpdate completed for topic '%s', result=%s", e.topic, result ? "true" : "false");
-  return result;
+
+  // If stored JSON is corrupted or incompatible, don't keep the device stuck in a broken state.
+  // Overwrite the stored value with the topic's current defaults.
+  if (!result) {
+    LOG_WARN_F("[Prefs] Failed to apply stored JSON for topic '%s' - rewriting defaults", e.topic);
+    return saveEntry(e);
+  }
+
+  return true;
 }
 
 inline void ModelBase::loadOrInitAll() {

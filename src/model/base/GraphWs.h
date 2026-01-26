@@ -15,6 +15,7 @@ inline void ModelBase::sendGraphPointXY(const char* graph, const char* label, ui
   d["synced"] = synced;
 
   String out;
+  out.reserve(measureJson(doc) + 1);
   serializeJson(doc, out);
   LOG_TRACE_F("[WS] Graph point JSON: %s", out.c_str());
   ws_.textAll(out);

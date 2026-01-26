@@ -196,6 +196,42 @@ void test_without_setSaveCallback_does_not_auto_persist() {
   TEST_END();
 }
 
+void test_corrupted_prefs_is_rewritten_with_defaults() {
+  TEST_START("ModelBase rewrites corrupted prefs with defaults");
+
+  clearModelNamespace();
+
+  // Pre-seed corrupted JSON under the key the model will use.
+  {
+    Preferences prefs;
+    prefs.begin("model", false);
+    prefs.putString("settings", "{not valid json");
+    prefs.end();
+  }
+
+  TestModelBase model(80, "/ws");
+  SettingsTopic settings;
+  settings.counter = 123;
+
+  model.registerTopic("settings", settings, true, false);
+  model.begin();
+
+  // After begin(), corrupted prefs should have been replaced by valid JSON.
+  Preferences prefs;
+  prefs.begin("model", true);
+  String saved = prefs.getString("settings", "");
+  prefs.end();
+
+  CUSTOM_ASSERT(saved.length() > 0, "Prefs value for 'settings' should exist after rewrite");
+
+  StaticJsonDocument<256> doc;
+  DeserializationError err = deserializeJson(doc, saved);
+  CUSTOM_ASSERT(!err, "Rewritten JSON should parse");
+  CUSTOM_ASSERT(doc["counter"]["value"].as<int>() == 123, "Rewritten counter should match default");
+
+  TEST_END();
+}
+
 void runAllTests() {
   SUITE_START("MODELBASE PREFS");
   test_begin_initializes_missing_prefs_key();
@@ -203,6 +239,7 @@ void runAllTests() {
   test_saveTopic_unknown_returns_false();
   test_setSaveCallback_auto_persists_on_change();
   test_without_setSaveCallback_does_not_auto_persist();
+  test_corrupted_prefs_is_rewritten_with_defaults();
   SUITE_END("MODELBASE PREFS");
 }
 

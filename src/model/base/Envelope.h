@@ -11,6 +11,7 @@ inline String ModelBase::makeEnvelope(Entry& e) {
   e.makeWsJson(e.objPtr, data);
 
   String out;
+  out.reserve(measureJson(doc) + 1);
   serializeJson(doc, out);
   return out;
 }
@@ -26,6 +27,7 @@ inline String ModelBase::makeDataOnlyJson(Entry& e) {
   LOG_TRACE_F("[ModelBase] makePrefsJson completed");
 
   String out;
+  out.reserve(measureJson(doc) + 1);
   serializeJson(doc, out);
   LOG_TRACE_F("[ModelBase] makeDataOnlyJson result: %s", out.c_str());
   return out;

@@ -2,6 +2,21 @@
 
 // Included by src/model/ModelBase.h
 
+#ifndef MODEL_HEAP_DIAG
+#define MODEL_HEAP_DIAG 0
+#endif
+
+#if MODEL_HEAP_DIAG && defined(ESP32)
+#include <esp_heap_caps.h>
+static inline void modelHeapDiag_(const char* tag) {
+  const uint32_t free8 = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  const uint32_t largest8 = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  LOG_TRACE_F("[ModelHeap] %s free8=%u largest8=%u", tag ? tag : "(null)", free8, largest8);
+}
+#else
+static inline void modelHeapDiag_(const char*) {}
+#endif
+
 inline ModelBase::ModelBase(uint16_t port, const char* wsPath)
     : server_(port), ws_(wsPath) {}
 
@@ -57,23 +72,33 @@ inline void ModelBase::onWsEvent(AsyncWebSocket*, AsyncWebSocketClient* client, 
   if (!info->final || info->index != 0 || info->len != len) return;
   if (info->opcode != WS_TEXT) return;
 
-  String msg;
-  msg.reserve(len + 1);
-  for (size_t i = 0; i < len; i++) msg += (char)data[i];
-
-  handleIncoming(client, msg);
+  (void)handleIncoming(client, (const char*)data, len);
 }
 
-inline void ModelBase::handleIncoming(AsyncWebSocketClient* client, const String& msg) {
-  LOG_DEBUG_F("[WS] Incoming message: %.100s", msg.c_str());
+inline bool ModelBase::handleIncoming(AsyncWebSocketClient* client, const char* msg, size_t len) {
+  if (!msg || len == 0) {
+    LOG_WARN("[WS] Incoming message is empty");
+    if (client) client->text(R"({"ok":false,"error":"empty_message"})");
+    return false;
+  }
+
+  modelHeapDiag_("ws_before_parse");
+
+  char preview[101];
+  size_t n = len > 100 ? 100 : len;
+  memcpy(preview, msg, n);
+  preview[n] = '\0';
+  LOG_DEBUG_F("[WS] Incoming message (%u bytes): %.100s", (unsigned)len, preview);
 
   static StaticJsonDocument<JSON_CAPACITY> doc;  // reuse to avoid stack bloat
   doc.clear();
-  if (deserializeJson(doc, msg)) {
+  if (deserializeJson(doc, msg, len)) {
     LOG_WARN("[WS] JSON deserialize failed");
-    client->text(R"({"ok":false,"error":"invalid_json"})");
-    return;
+    if (client) client->text(R"({"ok":false,"error":"invalid_json"})");
+    return false;
   }
+
+  modelHeapDiag_("ws_after_parse");
 
   // Check if this is a button trigger request
   const char* action = doc["action"];
@@ -82,12 +107,12 @@ inline void ModelBase::handleIncoming(AsyncWebSocketClient* client, const String
     const char* button = doc["button"];
     if (!topic || !button) {
       LOG_WARN("[WS] button_trigger: missing topic or button field");
-      client->text(R"({"ok":false,"error":"missing_topic_or_button"})");
-      return;
+      if (client) client->text(R"({"ok":false,"error":"missing_topic_or_button"})");
+      return false;
     }
     LOG_INFO_F("[WS] Button trigger request: topic=%s, button=%s", topic, button);
     handleButtonTrigger(client, topic, button);
-    return;
+    return true;
   }
 
   const char* topic = doc["topic"];
@@ -96,28 +121,33 @@ inline void ModelBase::handleIncoming(AsyncWebSocketClient* client, const String
 
   if (!topic || !data.is<JsonObject>()) {
     LOG_WARN("[WS] Missing topic or data is not object");
-    client->text(R"({"ok":false,"error":"missing_topic_or_data"})");
-    return;
+    if (client) client->text(R"({"ok":false,"error":"missing_topic_or_data"})");
+    return false;
   }
 
   Entry* e = find(topic);
   if (!e) {
     LOG_WARN_F("[WS] Unknown topic: %s", topic);
-    client->text(R"({"ok":false,"error":"unknown_topic"})");
-    return;
+    if (client) client->text(R"({"ok":false,"error":"unknown_topic"})");
+    return false;
   }
 
   LOG_INFO_F("[WS] Applying update for topic: %s", topic);
-  String dataStr;
-  serializeJson(data, dataStr);
-  LOG_TRACE_F("[WS] Data from WebSocket: %s", dataStr.c_str());
+  if (Logger::shouldLog(LogLevel::TRACE)) {
+    String dataStr;
+    dataStr.reserve(measureJson(data) + 1);
+    serializeJson(data, dataStr);
+    LOG_TRACE_F("[WS] Data from WebSocket: %s", dataStr.c_str());
+  }
 
-  bool ok = e->applyUpdate(e->objPtr, dataStr, false);
+  bool ok = e->applyUpdateJson(e->objPtr, data.as<JsonObject>(), false);
   if (!ok) {
     LOG_WARN_F("[WS] applyUpdate failed for topic: %s", topic);
-    client->text(R"({"ok":false,"error":"apply_failed"})");
-    return;
+    if (client) client->text(R"({"ok":false,"error":"apply_failed"})");
+    return false;
   }
+
+  modelHeapDiag_("ws_after_apply");
 
   LOG_INFO_F("[WS] Update successful, saving topic: %s", topic);
   LOG_TRACE_F("[WS] Persisting changes to Preferences for: %s", topic);
@@ -125,12 +155,22 @@ inline void ModelBase::handleIncoming(AsyncWebSocketClient* client, const String
   LOG_TRACE("[WS] Preferences saved, calling on_update callback");
   on_update(topic);
 
+  modelHeapDiag_("ws_after_save");
+
   LOG_TRACE("[WS] Sending confirmation back to client");
-  client->text(R"({"ok":true})");
+  if (client) client->text(R"({"ok":true})");
   broadcastTopic(topic);
+
+  return true;
 }
 
 inline void ModelBase::handleButtonTrigger(AsyncWebSocketClient* client, const char* topic, const char* button) {
   LOG_WARN_F("[WS] Button trigger not implemented: topic=%s, button=%s", topic, button);
-  client->text(R"({"ok":false,"error":"button_trigger_not_implemented"})");
+  if (client) client->text(R"({"ok":false,"error":"button_trigger_not_implemented"})");
 }
+
+#ifdef TEST_BUILD
+inline bool ModelBase::testHandleWsMessage(const char* msg, size_t len) {
+  return handleIncoming(nullptr, msg, len);
+}
+#endif

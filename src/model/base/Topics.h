@@ -39,6 +39,7 @@ inline void ModelBase::addEntry(const char* topic, T& obj, bool persist, bool ws
   e.makeWsJson = &makeWsJsonImpl<T>;
   e.makePrefsJson = &makePrefsJsonImpl<T>;
   e.applyUpdate = &applyUpdateImpl<T>;
+  e.applyUpdateJson = &applyUpdateJsonImpl<T>;
 
   // If the topic type exposes setSaveCallback(std::function<void()>), hook it to persist this entry on changes.
   {

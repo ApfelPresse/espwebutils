@@ -151,8 +151,9 @@ inline bool readOne_impl(T& obj, const Field<T, VarT>& f, JsonObject in, std::tr
     return false;
   }
 
-  if (v.is<const char*>()) {
-    LOG_TRACE_F("  -> variant value: '%s'", v.as<const char*>());
+  if (Logger::shouldLog(LogLevel::TRACE) && v.is<const char*>()) {
+    const char* s = v.as<const char*>();
+    LOG_TRACE_F("  -> variant value: '%s'", s ? s : "(null)");
   }
 
   VarT& var = obj.*(f.member);
@@ -265,6 +266,7 @@ inline String to_json(const T& obj) {
   JsonObject root = doc.template to<JsonObject>();
   writeFields(obj, T::schema(), root);
   String out;
+  out.reserve(measureJson(doc) + 1);
   serializeJson(doc, out);
   return out;
 }

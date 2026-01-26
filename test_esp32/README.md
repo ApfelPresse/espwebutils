@@ -8,6 +8,10 @@ Diese Tests werden direkt auf dem ESP32 ausgeführt.
 # Build und Upload
 pio run -e test_esp32s3 -t upload
 
+# Optional: Model WS Heap-Diagnose (MODEL_HEAP_DIAG)
+# (Logs erscheinen nur bei LogLevel::TRACE)
+pio run -e test_esp32s3_heapdiag -t upload
+
 # Monitor öffnen
 pio device monitor -e test_esp32s3
 
@@ -54,6 +58,10 @@ void setup() {
 - **Modulare Struktur**: Einfaches Hinzufügen neuer Test-Suites
 
 ## Aktuell verfügbare Tests
+
+### model_type_test/test_modelbase_ws_update.h
+- **test_ws_envelope_applies_update_without_prefs**: Testet dass der echte WS-Envelope-Pfad (handleIncoming) Updates korrekt applied
+- **test_ws_unknown_topic_returns_false**: Unbekannte Topics werden sauber abgelehnt
 
 ### model_type_test/test_model.h
 - **testStaticStringPersistence**: Testet ob StaticString korrekt in Preferences gespeichert und geladen wird

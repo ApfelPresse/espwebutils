@@ -32,3 +32,11 @@ inline bool ModelBase::applyUpdateImpl(void* objPtr, const String& dataJson, boo
   LOG_TRACE_F("[ModelBase::applyUpdateImpl] TypeAdapter<T>::read returned: %s", result ? "true" : "false");
   return result;
 }
+
+template <typename T>
+inline bool ModelBase::applyUpdateJsonImpl(void* objPtr, JsonObject data, bool strict) {
+  T& obj = *(T*)objPtr;
+  bool result = fj::TypeAdapter<T>::read(obj, data, strict);
+  LOG_TRACE_F("[ModelBase::applyUpdateJsonImpl] TypeAdapter<T>::read returned: %s", result ? "true" : "false");
+  return result;
+}
