@@ -170,16 +170,23 @@
   </div>
 
   <script src="/js/materialize.min.js"></script>
+  <script src="/js/ws_demo_data.js"></script>
+  <script src="/js/ws_mock.js"></script>
   <script>
-    // ========== Debug Mode Detection ==========
-    let DEBUG_MODE = false; // Will be set based on log_level from model
-    
-    function setDebugMode(enabled) {
-      DEBUG_MODE = enabled;
-      document.getElementById('debugPanel').style.display = enabled ? 'block' : 'none';
-      if (enabled) {
-        addDebugLog('ℹ INFO', 'Debug mode enabled (log_level = TRACE)');
+    // ========== Debug Mode ==========
+    // Matches model.html behavior: enable with ?debug=1
+    let DEBUG_MODE = false;
+
+    function initDebugMode() {
+      try {
+        const qs = new URLSearchParams(window.location.search);
+        DEBUG_MODE = qs.get('debug') === '1';
+      } catch (_) {
+        DEBUG_MODE = false;
       }
+      const panel = document.getElementById('debugPanel');
+      if (panel) panel.style.display = DEBUG_MODE ? 'block' : 'none';
+      if (DEBUG_MODE) addDebugLog('ℹ INFO', 'Debug mode enabled (?debug=1)');
     }
     
     function addDebugLog(direction, data) {
@@ -288,13 +295,6 @@
         }
       }
       
-      // Check log_level to enable/disable debug panel
-      if (data.log_level !== undefined) {
-        const logLevel = data.log_level.value !== undefined ? data.log_level.value : data.log_level;
-        console.log('[Model] Log level:', logLevel);
-        setDebugMode(logLevel === 0); // TRACE = 0
-      }
-      
       updateCurrentSsid();
     }
 
@@ -329,23 +329,18 @@
       console.log('[Scan] scanNetworks called');
       addDebugLog('ℹ INFO', 'Starting network scan...');
       document.getElementById('loader').style.display = 'block';
-      
-      fetch('/scan')
-        .then(response => {
-          console.log('[Scan] Response status:', response.status);
-          return response.json();
-        })
-        .then(data => {
-          console.log("[Scan] Got networks:", data);
-          addDebugLog('ℹ INFO', `Scan completed: ${data.length} networks found`);
-          // WebSocket will update the model automatically
-        })
-        .catch(error => {
-          console.error("[Scan] Error:", error);
-          addDebugLog('⚠ ERROR', `Scan failed: ${error.message}`);
-          showError("Fehler beim Scannen der Netzwerke");
-          document.getElementById('loader').style.display = 'none';
-        });
+
+      // Request scan via WebSocket (no /scan endpoint)
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        addDebugLog('⚠ ERROR', 'WebSocket not connected - cannot start scan');
+        showError('Nicht mit WebSocket verbunden');
+        document.getElementById('loader').style.display = 'none';
+        return;
+      }
+
+      const msg = { action: 'button_trigger', topic: 'wifi', button: 'scan_networks' };
+      addDebugLog('⬆ TX', msg);
+      ws.send(JSON.stringify(msg));
     }
 
     // ========== UI Functions ==========
@@ -411,6 +406,8 @@
 
     // ========== Init ==========
     document.addEventListener('DOMContentLoaded', () => {
+      initDebugMode();
+
       // Initialize modal (global variable)
       passModal = M.Modal.init(document.getElementById('passModal'));
       console.log('[Init] Modal initialized:', passModal !== null);

@@ -2,37 +2,9 @@
 
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
-#include <LittleFS.h>
-#include "webfiles.h"
 #include "Model.h"
 
 namespace AdminPage {
-
-static const WebFile* _findWebFile(const String &path)
-{
-  for (size_t i = 0; i < webFilesCount; ++i) {
-    if (String(webFiles[i].path) == path) return &webFiles[i];
-  }
-  return nullptr;
-}
-
-static void _serveEmbeddedFile(AsyncWebServerRequest *request, const String &path)
-{
-  const WebFile *wf = _findWebFile(path);
-  if (!wf) { request->send(404, "text/plain", "Not Found"); return; }
-
-  String contentType = "text/html";
-  if (path.endsWith(".js"))  contentType = "application/javascript";
-  if (path.endsWith(".css")) contentType = "text/css";
-  if (path.endsWith(".json")) contentType = "application/json";
-  if (path.endsWith(".svg")) contentType = "image/svg+xml";
-  if (path.endsWith(".png")) contentType = "image/png";
-  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) contentType = "image/jpeg";
-
-  AsyncWebServerResponse *resp = request->beginResponse(200, contentType, wf->data, wf->size);
-  resp->addHeader("Content-Encoding", "gzip");
-  request->send(resp);
-}
 
 static String _generatePassword(size_t len)
 {
@@ -160,34 +132,7 @@ static void registerAdminRoutes(AsyncWebServer &server, bool requireAdmin, Model
     }
   );
 
-  server.on("/admin", HTTP_GET, [requireAdmin, &model](AsyncWebServerRequest *request) {
-    if (!_requireAdminOrChallenge(request, requireAdmin, model)) return;
-    request->redirect("/wifi");
-  });
-
-  server.on("/wifi", HTTP_GET, [requireAdmin, &model](AsyncWebServerRequest *request) {
-    if (!_requireAdminOrChallenge(request, requireAdmin, model)) return;
-
-    if (LittleFS.exists("/admin.html")) {
-      request->send(LittleFS, "/admin.html", "text/html");
-    } else {
-      _serveEmbeddedFile(request, "/admin.html");
-    }
-  });
-
-  server.on("/admin.js", HTTP_GET, [requireAdmin, &model](AsyncWebServerRequest *request) {
-    if (!_requireAdminOrChallenge(request, requireAdmin, model)) return;
-
-    if (LittleFS.exists("/admin.js")) request->send(LittleFS, "/admin.js", "application/javascript");
-    else _serveEmbeddedFile(request, "/admin.js");
-  });
-
-  server.on("/admin.css", HTTP_GET, [requireAdmin, &model](AsyncWebServerRequest *request) {
-    if (!_requireAdminOrChallenge(request, requireAdmin, model)) return;
-
-    if (LittleFS.exists("/admin.css")) request->send(LittleFS, "/admin.css", "text/css");
-    else _serveEmbeddedFile(request, "/admin.css");
-  });
+  // Note: UI routes are handled by WiFiProvisioner via generateDefaultPage() + /wifi.html.
 
   server.on("/admin/password", HTTP_GET, [requireAdmin, &model](AsyncWebServerRequest *request) {
     if (!_requireAdminOrChallenge(request, requireAdmin, model)) return;

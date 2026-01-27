@@ -17,11 +17,19 @@ public:
 
   ModelBase(uint16_t port, const char* wsPath);
 
+  // Preferences namespace defaults to "model" if not specified.
+  ModelBase(uint16_t port, const char* wsPath, const char* prefsNamespace);
+
   void begin();
 
   // Attach the model's WebSocket handler to an existing AsyncWebServer.
   // Call this once before server.begin().
   void attachTo(AsyncWebServer& server);
+
+  // If addRootRoute is true, also installs a simple GET "/" probe route.
+  void attachTo(AsyncWebServer& server, bool addRootRoute);
+
+  const char* wsPath() const { return wsPath_; }
 
   bool broadcastTopic(const char* topic);
 
@@ -70,6 +78,9 @@ private:
   Entry entries_[MAX_TOPICS];
   size_t entryCount_ = 0;
 
+  const char* wsPath_ = "/ws";
+  const char* prefsNamespace_ = "model";
+  bool suppressAutoSideEffects_ = false;
   AsyncWebServer server_;
   AsyncWebSocket ws_;
   Preferences prefs_;

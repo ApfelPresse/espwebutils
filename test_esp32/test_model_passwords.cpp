@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "../src/Model.h"
+#include "../src/AdminModel.h"
 #include "test_helpers.h"
 
 namespace ModelPasswordTest {
@@ -14,7 +14,7 @@ namespace ModelPasswordTest {
     // Test: Password generation creates non-empty string
     void test_generate_password_creates_valid_password() {
         TEST_START("generatePassword returns valid password");
-        String pw = Model::generatePassword(12);
+        String pw = AdminModel::generatePassword(12);
         CUSTOM_ASSERT(pw.length() == 12, "Password length is 12");
         CUSTOM_ASSERT(pw.length() > 0, "Password is non-empty");
         TEST_END();
@@ -23,8 +23,8 @@ namespace ModelPasswordTest {
     // Test: Password generation creates different passwords
     void test_generate_password_creates_different_passwords() {
         TEST_START("generatePassword returns different passwords");
-        String pw1 = Model::generatePassword(12);
-        String pw2 = Model::generatePassword(12);
+        String pw1 = AdminModel::generatePassword(12);
+        String pw2 = AdminModel::generatePassword(12);
 
         CUSTOM_ASSERT(pw1 != pw2, "Two generated passwords should differ");
         TEST_END();
@@ -35,7 +35,7 @@ namespace ModelPasswordTest {
         TEST_START("ensurePasswords generates admin password");
         reset_nvs();
         
-        Model model;
+        AdminModel model;
         model.begin();
         
         const char* adminPw = model.admin.pass.get().c_str();
@@ -50,7 +50,7 @@ namespace ModelPasswordTest {
         TEST_START("ensurePasswords generates OTA password");
         reset_nvs();
         
-        Model model;
+        AdminModel model;
         model.begin();
         
         const char* otaPw = model.ota.ota_pass.get().c_str();
@@ -65,12 +65,12 @@ namespace ModelPasswordTest {
         TEST_START("ensurePasswords preserves admin password");
         reset_nvs();
         
-        Model model1;
+        AdminModel model1;
         model1.begin();
         String firstAdminPw = String(model1.admin.pass.get().c_str());
         
         // Create new model instance - should load from preferences
-        Model model2;
+        AdminModel model2;
         model2.begin();
         String secondAdminPw = String(model2.admin.pass.get().c_str());
 
@@ -83,12 +83,12 @@ namespace ModelPasswordTest {
         TEST_START("ensurePasswords preserves OTA password");
         reset_nvs();
         
-        Model model1;
+        AdminModel model1;
         model1.begin();
         String firstOtaPw = String(model1.ota.ota_pass.get().c_str());
         
         // Create new model instance - should load from preferences
-        Model model2;
+        AdminModel model2;
         model2.begin();
         String secondOtaPw = String(model2.ota.ota_pass.get().c_str());
 
@@ -101,7 +101,7 @@ namespace ModelPasswordTest {
         TEST_START("Manual password setting is preserved");
         reset_nvs();
         
-        Model model1;
+        AdminModel model1;
         model1.begin();
         
         // Manually set passwords
@@ -111,7 +111,7 @@ namespace ModelPasswordTest {
         model1.saveTopic("ota");
         
         // Create new instance and verify
-        Model model2;
+        AdminModel model2;
         model2.begin();
 
         CUSTOM_ASSERT(String(model2.admin.pass.get().c_str()) == "MyCustomAdminPass", "Admin password preserved");

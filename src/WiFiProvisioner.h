@@ -13,14 +13,13 @@
 #include <functional>
 
 #include "webfiles.h"
-#include "Model.h"
 #include "OtaUpdate.h"
 // #include "LiveGraphManager.h"
 #include "TimeSync.h"
-#include "AdminPage.h"
 #include "Logger.h"
 #include "Periodic.h"
 
+#include "AdminModel.h"
 
 class WiFiProvisioner
 {
@@ -31,7 +30,14 @@ public:
   DNSServer dns;
   OtaUpdate ota;
   TimeSync timeSync;
-  Model model;
+  // Built-in admin/settings model (always present)
+  AdminModel model;
+
+  // Optional user model (provided by library user)
+  // Must use a different WS path + Preferences namespace than the admin model.
+  void setUserModel(ModelBase& userModel) { _userModel = &userModel; }
+  void clearUserModel() { _userModel = nullptr; }
+  ModelBase* userModel() const { return _userModel; }
 
   WiFiProvisioner()
       : server(80),
@@ -42,27 +48,72 @@ public:
         _infoMessage("<h1>Bitte</h1> wählen Sie ein WLAN aus, um den ESP32 zu konfigurieren."),
         _staMode(false),
         _pendingRestart(false),
-        _restartTime(0)
+      _restartTime(0),
+      _lowLatencyWiFi(true)
   {
     //_graphsWs = new AsyncWebSocket("/ws/graphs");
     //_graphs = new LiveGraphManager(*_graphsWs, 20);
   }
 
   void enableOtaUpdates(bool en = true) { ota.setEnabled(en); }
-  void setOtaPassword(const String &pass = "") { ota.setPassword(pass); }
-  String getOtaPassword() { return ota.getPassword(); }
+  // Legacy helpers: keep API surface, but source of truth is the Model.
+  void setOtaPassword(const String &pass = "") { model.ota.ota_pass = pass.c_str(); }
+  String getOtaPassword() { return String(model.ota.ota_pass.get().c_str()); }
   void setOtaPort(uint16_t port) { ota.setPort(port); }
-  void setOtaWindowSeconds(uint32_t s) { ota.setWindowSeconds(s); }
+  void setOtaWindowSeconds(uint32_t s) { model.ota.window_seconds = (int)s; }
 
   void setApSsid(const String &ssid) { _apSsid = ssid; }
   void setApPassword(const String &pass) { _apPass = pass; }
   void setMdnsHost(const String &host) { _mdnsHost = host; _mdnsHostUserSet = true; }
+  // Improves mDNS responsiveness by disabling WiFi power save in STA mode.
+  // Note: increases power consumption.
+  void setLowLatencyWiFi(bool en = true) { _lowLatencyWiFi = en; }
   void setFallbackFile(const String &path) { _fallbackFile = path; }
   void setInfoMessage(const String &msg) { _infoMessage = msg; }
 
   void onStatus(StatusCallback cb) { _onStatus = cb; }
 
   void requireAdmin(bool en) { _requireAdmin = en; }
+
+  // Register a generic UI page for a given model under a friendly endpoint.
+  // This avoids having to ship a dedicated HTML file per model.
+  // Example: wifi.generateDefaultPage(userModel, "/model2");
+  // If requireBasicAuth==true, the page is protected via the admin credentials.
+  void generateDefaultPage(ModelBase& m,
+                           const char* routePath,
+                           const char* title = nullptr,
+                           bool adminMode = false,
+                           bool requireBasicAuth = false,
+                           bool debug = false)
+  {
+    if (!routePath || routePath[0] != '/') return;
+
+    String t = (title && title[0]) ? String(title) : String(routePath + 1);
+    // Minimal URL encoding for query parameter.
+    t.replace("%", "%25");
+    t.replace(" ", "%20");
+
+    String url = "/model.html?ws=";
+    url += m.wsPath();
+    url += "&title=";
+    url += t;
+    // Tell the UI to keep the friendly endpoint in the address bar.
+    url += "&alias=";
+    url += routePath;
+    if (adminMode) url += "&admin=1";
+    if (debug) url += "&debug=1";
+
+    server.on(routePath, HTTP_GET, [this, url, requireBasicAuth](AsyncWebServerRequest* request) {
+      if (requireBasicAuth && !_requireBasicAuthOrChallenge(request)) return;
+      request->redirect(url);
+    });
+
+    String htmlAlias = String(routePath) + ".html";
+    server.on(htmlAlias.c_str(), HTTP_GET, [this, url, requireBasicAuth](AsyncWebServerRequest* request) {
+      if (requireBasicAuth && !_requireBasicAuthOrChallenge(request)) return;
+      request->redirect(url);
+    });
+  }
 
   //void pushData(const String &graph, const String &label, double y) { if (_graphs) _graphs->pushData(graph, label, y); }
   //void pushData(const String &graph, const String &label, double x, double y) { if (_graphs) _graphs->pushData(graph, label, x, y); }
@@ -84,6 +135,11 @@ public:
     // ===== STEP 2: Load Model & Preferences =====
     LOG_INFO("[INIT] SCHRITT 2: Model und Preferences laden...");
     model.begin();  // Calls ModelBase::begin() and ensurePasswords()
+
+    if (_userModel) {
+      LOG_INFO("[INIT] Zusätzliches User-Model registriert -> begin()");
+      _userModel->begin();
+    }
     const char *modelMdns = model.mdns.mdns_domain;
     if (!_mdnsHostUserSet && modelMdns && modelMdns[0] != '\0') {
       _mdnsHost = modelMdns;
@@ -105,9 +161,12 @@ public:
       LOG_INFO("[INIT] ✓ WiFi-Verbindung erfolgreich!");
       _startMdns();
       timeSync.begin("CET-1CEST,M3.5.0/2,M10.5.0/3");
-      ota.load();
       ota.onStatus([this](const String &s) { if (_onStatus) _onStatus(s); });
       ota.setHostname(_mdnsHost);
+      ota.setPrefsEnabled(false);
+
+      // Configure OTA from Model (password + window seconds)
+      _applyOtaFromModel();
       ota.beginIfNeeded(_mdnsHost);
       LOG_INFO("[INIT] OTA Update aktiviert");
     } else {
@@ -127,6 +186,42 @@ public:
       LOG_WARN("[WiFi-UPDATE] Starte Restart in 2 Sekunden...");
       this->_pendingRestart = true;
       this->_restartTime = millis() + 2000;
+    };
+
+    model.onOtaUpdate = [this]() {
+      LOG_INFO("[OTA] Model OTA settings updated -> applying to ArduinoOTA");
+      _applyOtaFromModel();
+      // Push remaining seconds immediately (so UI updates fast)
+      _updateOtaRemaining(true);
+    };
+
+    model.onOtaExtendRequest = [this]() {
+      LOG_INFO("[OTA] Extend window requested via WebSocket");
+      ota.restartWindow();
+      _updateOtaRemaining(true);
+    };
+
+    model.onResetRequest = [this]() {
+      LOG_WARN("[RESET] Reset requested via WebSocket - clearing WiFi credentials and restarting...");
+      model.wifi.ssid = "";
+      model.wifi.pass = "";
+      model.saveTopic("wifi");
+      model.broadcastTopic("wifi");
+
+      this->_pendingRestart = true;
+      this->_restartTime = millis() + 1000;
+    };
+
+    model.onWifiScanRequest = [this]() {
+      LOG_INFO("[WiFi-SCAN] Scan request via WebSocket");
+      // Only meaningful in AP mode; but harmless in STA mode.
+      int n = WiFi.scanComplete();
+      if (n == -1) {
+        LOG_DEBUG("[WiFi-SCAN] Scan already running");
+        return;
+      }
+      WiFi.scanDelete();
+      WiFi.scanNetworks(true);
     };
     
     // ===== STEP 6: WiFi Scan nur im AP-Modus =====
@@ -174,6 +269,11 @@ public:
       ota.handle();
     }
 
+    // Push remaining OTA window time (approx 1Hz)
+    if (_otaRemainingPusher.ready()) {
+      _updateOtaRemaining(false);
+    }
+
     // ===== CHECK 4: WiFi Scan Results =====
     int n = WiFi.scanComplete();
     if (n >= 0) {
@@ -216,7 +316,28 @@ private:
   uint32_t lastCleanup = 0;
   bool _pendingRestart = false;
   unsigned long _restartTime = 0;
+  bool _lowLatencyWiFi = true;
   Periodic _heapLogger = Periodic(5000);
+  Periodic _otaRemainingPusher = Periodic(1000);
+  int _lastOtaRemaining = -9999;
+
+  ModelBase* _userModel = nullptr;
+
+  bool _requireBasicAuthOrChallenge(AsyncWebServerRequest* request)
+  {
+    const char* pw = model.admin.pass;
+    if (!pw || pw[0] == '\0') {
+      request->send(500, "text/plain", "Admin password not set");
+      return false;
+    }
+
+    if (!request->authenticate("admin", pw)) {
+      request->requestAuthentication();
+      return false;
+    }
+
+    return true;
+  }
     
   bool _connectToWiFi()
   {
@@ -237,6 +358,14 @@ private:
     // Setze WiFi in STA-Modus
     WiFi.mode(WIFI_STA);
     LOG_DEBUG_F("[STA] WiFi-Modus: STA, SSID: '%s'", ssid);
+
+    // Set hostname early (before DHCP) for consistent mDNS/DHCP hostname behavior.
+    WiFi.setHostname(_mdnsHost.c_str());
+
+    if (_lowLatencyWiFi) {
+      // Disabling modem sleep improves multicast responsiveness (mDNS), but costs power.
+      WiFi.setSleep(false);
+    }
     
     // Starte Verbindung
     WiFi.begin(ssid, pass);
@@ -323,11 +452,7 @@ private:
     LOG_INFO_F("[AP] Verbinde dich mit SSID '%s' um Credentials zu übertragen", _apSsid.c_str());
     LOG_INFO("[AP] Rufe 192.168.4.1 im Browser auf");
 
-    server.on("/scan", HTTP_GET, [this](AsyncWebServerRequest *request) { _handleScan(request); });
-
-    server.on("/save", HTTP_POST, [this](AsyncWebServerRequest *request) {}, nullptr, [this](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t, size_t) {
-      _handleSave(request, data, len);
-    });
+    // No /scan or /save endpoints: WiFi provisioning happens via WebSocket + model updates.
   }
 
   void _registerRoutes()
@@ -335,89 +460,19 @@ private:
     if (_staMode)
     {
       LOG_DEBUG("[ROUTES] Registriere STA-Modus Routes (Admin Seite)");
-      AdminPage::registerAdminRoutes(server, _requireAdmin, model);
-
-      server.on("/status", HTTP_GET, [](AsyncWebServerRequest *request)
-                {
-        DynamicJsonDocument doc(256);
-        doc["ssid"] = WiFi.SSID();
-        doc["ip"] = WiFi.localIP().toString();
-        doc["mdns"] = String("http://") + WiFi.getHostname() + ".local/";
-        String json;
-        serializeJson(doc, json);
-        request->send(200, "application/json", json); 
-      });
-
-      server.on("/ota/status", HTTP_GET, [this](AsyncWebServerRequest *request)
-                {
-        DynamicJsonDocument doc(384);
-
-        doc["enabled"] = ota.isEnabled();
-        doc["started"] = ota.isStarted();
-        doc["host"] = ota.getHostname().length() ? ota.getHostname() : String(WiFi.getHostname());
-        doc["port"] = ota.getPort();
-        doc["windowSeconds"] = ota.getWindowSeconds();
-
-        uint32_t rem = ota.getRemainingSeconds();
-        if (ota.getWindowSeconds() == 0) {
-          doc["remainingSeconds"] = nullptr;   // unbegrenzt
-        } else {
-          doc["remainingSeconds"] = rem;
-        }
-
-        doc["password"] = ota.isEnabled() ? ota.getPassword() : "";
-
-        String json;
-        serializeJson(doc, json);
-        request->send(200, "application/json", json); });
-
-      server.on("/ota/regenerate-password", HTTP_POST, [this](AsyncWebServerRequest *request)
-                {
-  DynamicJsonDocument doc(256);
-
-  String newPass = ota.regeneratePassword();
-  doc["ok"] = true;
-  doc["password"] = newPass;
-
-  String json;
-  serializeJson(doc, json);
-  request->send(200, "application/json", json); });
-
-      server.on("/ota/extend", HTTP_POST, [this](AsyncWebServerRequest *request)
-                {
-  ota.restartWindow();
-
-  DynamicJsonDocument doc(128);
-  doc["ok"] = true;
-if (ota.getWindowSeconds() == 0) {
-  doc["remainingSeconds"] = nullptr;   // JSON null
-} else {
-  doc["remainingSeconds"] = ota.getRemainingSeconds();
-}
-
-  String json;
-  serializeJson(doc, json);
-  request->send(200, "application/json", json); });
-
-      server.on("/reset", HTTP_POST, [](AsyncWebServerRequest *request)
-                {
-        LOG_WARN("[RESET] Lösche alle WLAN-Daten und starte Neustart!");
-        Preferences prefs;
-        prefs.begin("wifi", false);
-        prefs.clear();
-        prefs.end();
-        request->send(200, "text/plain", "WLAN-Daten gelöscht. Neustart...");
-        delay(1000);
-        ESP.restart(); 
-      });
 
       server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request)
                 {
-        if (_littleFsAvailable) {
+        if (_requireAdmin && !_requireBasicAuthOrChallenge(request)) return;
+
+        // Allow a custom LittleFS landing page.
+        if (_littleFsAvailable && LittleFS.exists("/index.html")) {
           request->send(LittleFS, "/index.html", "text/html");
-        } else {
-          _serveFileWithFallback(request, "/admin.html");
+          return;
         }
+
+        // Default: serve the embedded admin page directly (no redirect).
+        _serveFileWithFallback(request, "/admin.html");
       });
     }
     else
@@ -425,23 +480,50 @@ if (ota.getWindowSeconds() == 0) {
       LOG_DEBUG("[ROUTES] Registriere AP-Modus Routes (WiFi Setup Seite)");
       server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request)
                 { _serveFileWithFallback(request, _fallbackFile); });
-
-      server.on("/info", HTTP_GET, [this](AsyncWebServerRequest *request)
-                { request->send(200, "text/html", _infoMessage); });
     }
 
-    server.on("/graphs", HTTP_GET, [this](AsyncWebServerRequest *request)
-          { _serveFileWithFallback(request, "/graphs.html"); });
+    // Graphs are rendered inside /model.html based on WS messages; no standalone /graphs page.
+
+        // Generic shared model UI template
+        server.on("/model", HTTP_GET, [this](AsyncWebServerRequest *request)
+          { _serveFileWithFallback(request, "/model.html"); });
+        server.on("/model.html", HTTP_GET, [this](AsyncWebServerRequest *request)
+          { _serveFileWithFallback(request, "/model.html"); });
+
+    // Admin UI & WiFi page
+    generateDefaultPage(model, "/admin", "ESP32 Admin", true, _requireAdmin);
+    server.on("/wifi", HTTP_GET, [this](AsyncWebServerRequest *request)
+              {
+      if (_requireAdmin && !_requireBasicAuthOrChallenge(request)) return;
+      _serveFileWithFallback(request, "/wifi.html");
+    });
+
+    // Optional: User model UI (redirects to /model.html with correct ws)
+    if (_userModel) {
+      generateDefaultPage(*_userModel, "/model2", "ESP32 Model2", false, _requireAdmin);
+    } else {
+      server.on("/model2", HTTP_GET, [](AsyncWebServerRequest *request) { request->redirect("/admin"); });
+      server.on("/model2.html", HTTP_GET, [](AsyncWebServerRequest *request) { request->redirect("/admin"); });
+    }
 
     // Attach Model WebSocket
     LOG_DEBUG("[ROUTES] Registriere Model WebSocket");
     model.attachTo(server);
 
+    if (_userModel) {
+      LOG_DEBUG("[ROUTES] Registriere User-Model WebSocket");
+      _userModel->attachTo(server, false);
+    }
+
     // Fallback Routes
     if (_staMode)
     {
+      // In STA mode we still want to serve embedded static assets (css/js/fonts)
+      // and other known files. Only unknown routes should redirect to /admin.
       server.onNotFound([this](AsyncWebServerRequest *request)
-                        { _serveFileWithFallback(request, "/admin.html"); });
+                        {
+        if (_serveExactFileIfExists(request)) return;
+        request->redirect("/admin"); });
     }
     else
     {
@@ -453,6 +535,34 @@ if (ota.getWindowSeconds() == 0) {
     LOG_INFO("[ROUTES] Starte HTTP Webserver auf Port 80");
     server.begin();
     LOG_INFO("[ROUTES] ✓ Alle Routes registriert");
+  }
+
+  void _applyOtaFromModel()
+  {
+    const char* pass = model.ota.ota_pass;
+    int window = model.ota.window_seconds.get();
+    if (window < 0) window = 0;
+
+    // Keep ArduinoOTA in sync with model values.
+    ota.setPassword(pass ? String(pass) : String(""));
+    ota.setWindowSeconds((uint32_t)window);
+  }
+
+  void _updateOtaRemaining(bool force)
+  {
+    int rem = 0;
+    if (ota.isEnabled() && ota.isStarted()) {
+      if (ota.getWindowSeconds() == 0) {
+        rem = -1; // unlimited
+      } else {
+        rem = (int)ota.getRemainingSeconds();
+      }
+    }
+
+    if (!force && rem == _lastOtaRemaining) return;
+    _lastOtaRemaining = rem;
+    model.ota.remaining_seconds.set(rem);
+    model.broadcastTopic("ota");
   }
 
   // Route handlers (extracted for clarity)
@@ -617,6 +727,49 @@ if (ota.getWindowSeconds() == 0) {
     }
   }
 
+  // Try to serve the requested URI as-is (no fallback). Returns true if served.
+  bool _serveExactFileIfExists(AsyncWebServerRequest *request)
+  {
+    const String uri = request->url();
+
+    const bool looksLikeStaticAsset =
+        uri.startsWith("/js/") ||
+        uri.startsWith("/css/") ||
+        uri.startsWith("/fonts/") ||
+        uri.endsWith(".map") ||
+        uri.endsWith(".ico");
+
+    // Prefer embedded webfiles (always present) to avoid noisy LittleFS open() logs
+    // when LittleFS is mounted but doesn't contain the asset.
+    const WebFile *match = _findWebFile(uri);
+    if (match)
+    {
+      const String contentType = _getContentType(match->path);
+      AsyncWebServerResponse *response = request->beginResponse(200, contentType, match->data, match->size);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+      return true;
+    }
+
+    // Then allow LittleFS overrides (optional).
+    if (_littleFsAvailable && LittleFS.exists(uri))
+    {
+      const String contentType = _getContentType(uri);
+      request->send(LittleFS, uri, contentType);
+      return true;
+    }
+
+    // For static asset requests we should not redirect to /admin, because that returns HTML
+    // and will show up as "Unexpected token '<'" in the browser console.
+    if (looksLikeStaticAsset)
+    {
+      request->send(404, "text/plain", "Not Found");
+      return true;
+    }
+
+    return false;
+  }
+
   String _getContentType(const String &path)
   {
     if (path.endsWith(".html"))
@@ -643,9 +796,9 @@ if (ota.getWindowSeconds() == 0) {
     return nullptr;
   }
 
-  // Password generation helper (delegates to Model)
+  // Password generation helper (delegates to AdminModel)
   String _generatePassword(size_t len = 12) {
-    return Model::generatePassword(len);
+    return AdminModel::generatePassword(len);
   }
 
   // Check whether the incoming request provides correct admin credentials.

@@ -51,7 +51,13 @@ inline void ModelBase::addEntry(const char* topic, T& obj, bool persist, bool ws
 template <typename T>
 inline typename std::enable_if<ModelBase::has_setSaveCallback<T>::value, void>::type
 ModelBase::maybeAttachSaveCallback(T& obj, Entry* ep) {
-  obj.setSaveCallback([this, ep]() { this->saveEntry(*ep); });
+  obj.setSaveCallback([this, ep]() {
+    if (this->suppressAutoSideEffects_) return;
+    (void)this->saveEntry(*ep);
+    if (ep && ep->ws_send) {
+      (void)this->broadcastTopic(ep->topic);
+    }
+  });
 }
 
 template <typename T>

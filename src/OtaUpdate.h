@@ -15,6 +15,11 @@ public:
         _enabled = en;
         _writeBool("otaEnabled", en);
     }
+    // When disabled, OtaUpdate will not read/write its own Preferences keys.
+    // Intended when a higher-level Model already persists OTA configuration.
+    void setPrefsEnabled(bool en) { _prefsEnabled = en; }
+    bool prefsEnabled() const { return _prefsEnabled; }
+
 
     bool isEnabled() const { return _enabled; }
 
@@ -171,6 +176,8 @@ public:
 private:
     static constexpr const char *_ns = "wifi";
 
+    bool _prefsEnabled = true;
+
     bool _enabled = true;
     bool _rebootOnSuccess = true;
 
@@ -194,6 +201,7 @@ private:
 
     String _readString(const char *key, const String &def)
     {
+        if (!_prefsEnabled) return def;
         Preferences p;
         p.begin(_ns, true);
 
@@ -210,6 +218,7 @@ private:
 
     bool _readBool(const char *key, bool def)
     {
+        if (!_prefsEnabled) return def;
         Preferences p;
         p.begin(_ns, true);
         bool v = p.getBool(key, def);
@@ -219,6 +228,7 @@ private:
 
     uint16_t _readUShort(const char *key, uint16_t def)
     {
+        if (!_prefsEnabled) return def;
         Preferences p;
         p.begin(_ns, true);
         uint16_t v = p.getUShort(key, def);
@@ -228,6 +238,7 @@ private:
 
     uint32_t _readUInt(const char *key, uint32_t def)
     {
+        if (!_prefsEnabled) return def;
         Preferences p;
         p.begin(_ns, true);
         uint32_t v = p.getUInt(key, def);
@@ -237,6 +248,7 @@ private:
 
     void _writeString(const char *key, const String &v)
     {
+        if (!_prefsEnabled) return;
         Preferences p;
         p.begin(_ns, false);
         p.putString(key, v);
@@ -245,6 +257,7 @@ private:
 
     void _writeBool(const char *key, bool v)
     {
+        if (!_prefsEnabled) return;
         Preferences p;
         p.begin(_ns, false);
         p.putBool(key, v);
@@ -253,6 +266,7 @@ private:
 
     void _writeUShort(const char *key, uint16_t v)
     {
+        if (!_prefsEnabled) return;
         Preferences p;
         p.begin(_ns, false);
         p.putUShort(key, v);
@@ -261,6 +275,7 @@ private:
 
     void _writeUInt(const char *key, uint32_t v)
     {
+        if (!_prefsEnabled) return;
         Preferences p;
         p.begin(_ns, false);
         p.putUInt(key, v);
@@ -269,6 +284,7 @@ private:
 
     void _removeKey(const char *key)
     {
+        if (!_prefsEnabled) return;
         Preferences p;
         p.begin(_ns, false);
         p.remove(key);

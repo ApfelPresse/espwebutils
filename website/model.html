@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+  <meta charset="UTF-8">
+  <title>ESP32 Model</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="/css/materialize.min.css" rel="stylesheet">
+  <link href="/css/material-icons.css" rel="stylesheet">
+  <style>
+    body { padding: 2rem; background: #f7f9fc; }
+    .card-grid { display: flex; flex-direction: column; gap: 1rem; }
+    .setting-row { display: flex; align-items: center; margin-bottom: 0.75rem; gap: 0.75rem; }
+    .setting-row label { min-width: 120px; font-weight: 600; }
+    .setting-row .value-list { margin: 0; padding-left: 1rem; }
+    .chip.connected { background-color: #e8f5e9; color: #2e7d32; }
+    .chip.disconnected { background-color: #ffebee; color: #c62828; }
+  </style>
+</head>
+
+<body>
+  <h4 id="pageTitle">ESP32 Model</h4>
+
+  <div id="mainContent" style="display:block;">
+    <div style="margin-bottom:1rem; display:flex; gap:0.5rem; align-items:center; flex-wrap: wrap;">
+      <span id="wsBadge" class="chip disconnected">WS: getrennt</span>
+    </div>
+
+    <div id="cardsContainer" class="card-grid"></div>
+    <div id="graphsContainer" class="card-grid" style="margin-top:1rem;"></div>
+
+    <div id="wsDebugCard" class="card" style="margin-top:1rem; display:none;">
+      <div class="card-content">
+        <span class="card-title">🐛 WebSocket Debug</span>
+        <pre id="wsDebugLog" style="background:#263238; color:#aed581; padding:1rem; border-radius:4px; max-height:400px; overflow-y:auto; font-size:0.85rem; margin:0;"></pre>
+      </div>
+      <div class="card-action">
+        <a class="btn-small red" onclick="document.getElementById('wsDebugLog').textContent = ''">Clear</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/materialize.min.js"></script>
+  <script src="/js/chart.umd.min.js"></script>
+
+  <!-- Optional offline demo support (?demo=1) -->
+  <script src="/js/ws_demo_data.js"></script>
+  <script src="/js/ws_mock.js"></script>
+
+  <!-- Shared renderer + optional admin extras -->
+  <script src="/js/model_generic.js"></script>
+  <script src="/js/model_page_bootstrap.js"></script>
+</body>
+
+</html>

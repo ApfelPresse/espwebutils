@@ -18,13 +18,21 @@ static inline void modelHeapDiag_(const char*) {}
 #endif
 
 inline ModelBase::ModelBase(uint16_t port, const char* wsPath)
-    : server_(port), ws_(wsPath) {}
+  : ModelBase(port, wsPath, "model") {}
+
+inline ModelBase::ModelBase(uint16_t port, const char* wsPath, const char* prefsNamespace)
+  : wsPath_(wsPath ? wsPath : "/ws"),
+    prefsNamespace_(prefsNamespace ? prefsNamespace : "model"),
+    server_(port),
+  ws_(wsPath_) {}
 
 inline void ModelBase::begin() {
-  LOG_TRACE("[Model] ModelBase::begin() - opening Preferences namespace 'model'");
-  prefs_.begin("model", false);
+  LOG_TRACE_F("[Model] ModelBase::begin() - opening Preferences namespace '%s'", prefsNamespace_ ? prefsNamespace_ : "(null)");
+  prefs_.begin(prefsNamespace_ ? prefsNamespace_ : "model", false);
   LOG_TRACE("[Model] Loading all topics from Preferences");
+  suppressAutoSideEffects_ = true;
   loadOrInitAll();
+  suppressAutoSideEffects_ = false;
   LOG_TRACE("[Model] All topics loaded, registering WebSocket handler");
 
   ws_.onEvent([this](AsyncWebSocket* s, AsyncWebSocketClient* c, AwsEventType t, void* a, uint8_t* d, size_t l) {
@@ -33,8 +41,19 @@ inline void ModelBase::begin() {
 }
 
 inline void ModelBase::attachTo(AsyncWebServer& server) {
+  attachTo(server, true);
+}
+
+inline void ModelBase::attachTo(AsyncWebServer& server, bool addRootRoute) {
   server.addHandler(&ws_);
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest* req) { req->send(200, "text/plain", "WS ready at /ws"); });
+  if (!addRootRoute) return;
+
+  const char* path = wsPath_ ? wsPath_ : "/ws";
+  server.on("/", HTTP_GET, [path](AsyncWebServerRequest* req) {
+    String msg = "WS ready at ";
+    msg += path;
+    req->send(200, "text/plain", msg);
+  });
 }
 
 inline bool ModelBase::broadcastTopic(const char* topic) {
@@ -140,7 +159,9 @@ inline bool ModelBase::handleIncoming(AsyncWebSocketClient* client, const char* 
     LOG_TRACE_F("[WS] Data from WebSocket: %s", dataStr.c_str());
   }
 
+  suppressAutoSideEffects_ = true;
   bool ok = e->applyUpdateJson(e->objPtr, data.as<JsonObject>(), false);
+  suppressAutoSideEffects_ = false;
   if (!ok) {
     LOG_WARN_F("[WS] applyUpdate failed for topic: %s", topic);
     if (client) client->text(R"({"ok":false,"error":"apply_failed"})");

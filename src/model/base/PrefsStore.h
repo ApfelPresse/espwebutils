@@ -44,7 +44,9 @@ inline bool ModelBase::loadEntry(Entry& e) {
 
   LOG_TRACE_F("[Prefs] Loading topic '%s': %s", e.topic, dataJson.c_str());
   LOG_TRACE_F("[ModelBase] About to call e.applyUpdate for topic '%s'", e.topic);
+  suppressAutoSideEffects_ = true;
   bool result = e.applyUpdate(e.objPtr, dataJson, false);
+  suppressAutoSideEffects_ = false;
   LOG_TRACE_F("[ModelBase] applyUpdate completed for topic '%s', result=%s", e.topic, result ? "true" : "false");
 
   // If stored JSON is corrupted or incompatible, don't keep the device stuck in a broken state.

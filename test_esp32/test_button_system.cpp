@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "../src/Model.h"
+#include "../src/AdminModel.h"
 #include "test_helpers.h"
 
 namespace ButtonSystemTest {
@@ -45,7 +45,7 @@ namespace ButtonSystemTest {
   void test_model_ota_button_callback_setup() {
     TEST_START("Model OTA button callback setup");
     reset_nvs_button_tests();
-    Model model;
+    AdminModel model;
     model.begin();
     
     // Check that callback is registered (button should not be null)
@@ -57,7 +57,7 @@ namespace ButtonSystemTest {
   void test_ota_password_generation_via_button() {
     TEST_START("OTA password generation via button");
     reset_nvs_button_tests();
-    Model model;
+    AdminModel model;
     model.begin();
     
     // Get initial password (should be generated)
@@ -78,7 +78,7 @@ namespace ButtonSystemTest {
   void test_button_password_length() {
     TEST_START("Button trigger preserves password length");
     reset_nvs_button_tests();
-    Model model;
+    AdminModel model;
     model.begin();
     
     // Trigger button multiple times
@@ -94,7 +94,7 @@ namespace ButtonSystemTest {
   void test_button_password_valid_charset() {
     TEST_START("Generated password uses valid charset");
     reset_nvs_button_tests();
-    Model model;
+    AdminModel model;
     model.begin();
     
     model.ota.generate_new_ota_pass.on_trigger();
@@ -114,7 +114,7 @@ namespace ButtonSystemTest {
   void test_model_handle_button_trigger() {
     TEST_START("Button trigger updates model value");
     reset_nvs_button_tests();
-    Model model;
+    AdminModel model;
     model.begin();
     
     String pw_before = String(model.ota.ota_pass.get().c_str());
@@ -131,7 +131,7 @@ namespace ButtonSystemTest {
   void test_admin_password_generation_via_button() {
     TEST_START("Admin password generation via button");
     reset_nvs_button_tests();
-    Model model;
+    AdminModel model;
     model.begin();
 
     String pw1 = String(model.admin.pass.get().c_str());
@@ -172,7 +172,7 @@ namespace ButtonSystemTest {
     TEST_START("Button trigger persistence");
     reset_nvs_button_tests();
     {
-      Model model1;
+      AdminModel model1;
       model1.begin();
       model1.ota.generate_new_ota_pass.on_trigger();
       const char* pw1 = model1.ota.ota_pass.get().c_str();
@@ -181,7 +181,7 @@ namespace ButtonSystemTest {
     
     // Load again and verify password is persisted
     {
-      Model model2;
+      AdminModel model2;
       model2.begin();
       const char* pw2 = model2.ota.ota_pass.get().c_str();
       CUSTOM_ASSERT(strlen(pw2) > 0, "Password persisted: non-empty after reload");
