@@ -208,6 +208,9 @@ public:
   // Callback for when UI requests WiFi reset (clear credentials + restart)
   std::function<void()> onResetRequest = nullptr;
 
+  // Callback for when UI requests a factory reset (erase all Preferences/NVS + restart)
+  std::function<void()> onFactoryResetRequest = nullptr;
+
   // Callback for when mDNS settings are changed (hostname)
   std::function<void()> onMdnsUpdate = nullptr;
 
@@ -229,6 +232,7 @@ public:
     fj::VarWsPrefsRw<int> heap_send_time_ms = 5000;
     Button generate_new_admin_ui_pass;
     Button reset_wifi_button;
+    Button factory_reset_button;
     fj::VarWsPrefsRw<PointRingBuffer<HEAP_SIZE>> heap;
 
     typedef fj::Schema<AdminSettings,
@@ -237,6 +241,7 @@ public:
                        fj::Field<AdminSettings, decltype(heap_send_time_ms)>,
                        fj::Field<AdminSettings, decltype(generate_new_admin_ui_pass)>,
                        fj::Field<AdminSettings, decltype(reset_wifi_button)>,
+                       fj::Field<AdminSettings, decltype(factory_reset_button)>,
                        fj::Field<AdminSettings, decltype(heap)>> SchemaType;
 
     static const SchemaType &schema() {
@@ -246,6 +251,7 @@ public:
         fj::Field<AdminSettings, decltype(heap_send_time_ms)>{"heap_send_time_ms", &AdminSettings::heap_send_time_ms},
         fj::Field<AdminSettings, decltype(generate_new_admin_ui_pass)>{"generate_new_admin_ui_pass", &AdminSettings::generate_new_admin_ui_pass},
         fj::Field<AdminSettings, decltype(reset_wifi_button)>{"reset_wifi_button", &AdminSettings::reset_wifi_button},
+        fj::Field<AdminSettings, decltype(factory_reset_button)>{"factory_reset_button", &AdminSettings::factory_reset_button},
         fj::Field<AdminSettings, decltype(heap)>{"heap", &AdminSettings::heap}
       );
       return s;
@@ -332,6 +338,9 @@ public:
     admin.generate_new_admin_ui_pass.setCallback([this]() { this->onGenerateNewAdminUiPassword(); });
     admin.reset_wifi_button.setCallback([this]() {
       if (this->onResetRequest) this->onResetRequest();
+    });
+    admin.factory_reset_button.setCallback([this]() {
+      if (this->onFactoryResetRequest) this->onFactoryResetRequest();
     });
 
     time.sync_now.setCallback([this]() {
@@ -445,6 +454,13 @@ protected:
       if (strcmp(button, "reset_wifi_button") == 0) {
         LOG_WARN("[Admin] Button trigger: reset_wifi_button");
         if (onResetRequest) onResetRequest();
+        if (client) client->text(R"({"ok":true,"action":"button_triggered"})");
+        return;
+      }
+
+      if (strcmp(button, "factory_reset_button") == 0) {
+        LOG_WARN("[Admin] Button trigger: factory_reset_button");
+        if (onFactoryResetRequest) onFactoryResetRequest();
         if (client) client->text(R"({"ok":true,"action":"button_triggered"})");
         return;
       }

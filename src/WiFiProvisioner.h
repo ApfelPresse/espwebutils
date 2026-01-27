@@ -246,6 +246,29 @@ public:
       this->_restartTime = millis() + 1000;
     };
 
+    model.onFactoryResetRequest = [this]() {
+      LOG_WARN("[RESET] Factory reset requested via WebSocket - erasing NVS/Preferences and restarting...");
+
+      // Erase the entire NVS partition (Preferences are stored in NVS).
+      // This resets all persisted settings (WiFi creds, admin/OTA pass, sessions, etc.).
+      esp_err_t err = nvs_flash_erase();
+      if (err != ESP_OK) {
+        LOG_ERROR_F("[RESET] nvs_flash_erase failed: %d", (int)err);
+      } else {
+        LOG_WARN("[RESET] NVS erased successfully");
+      }
+
+      // Re-init NVS for safety; we'll restart shortly anyway.
+      err = nvs_flash_init();
+      if (err != ESP_OK) {
+        LOG_ERROR_F("[RESET] nvs_flash_init failed after erase: %d", (int)err);
+      }
+
+      if (_onStatus) _onStatus("Factory reset — restart in 1s");
+      this->_pendingRestart = true;
+      this->_restartTime = millis() + 1000;
+    };
+
     model.onMdnsUpdate = [this]() {
       // mDNS/hostname is (re)initialized during boot; applying changes live is unreliable.
       // Schedule a short delayed restart so the new .local name is announced cleanly.
