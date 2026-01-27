@@ -3,15 +3,90 @@
 // - cardsContainer, graphsContainer, wsDebugLog, wsBadge
 // Optional: Materialize toast if M is present.
 
+// Global console log collector for debug export
+window.__consoleLogs = [];
+if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  console.log = function(...args) {
+    originalLog.apply(console, args);
+    window.__consoleLogs.push(args.map(a => String(a)).join(' '));
+  };
+  console.error = function(...args) {
+    originalError.apply(console, args);
+    window.__consoleLogs.push('[ERROR] ' + args.map(a => String(a)).join(' '));
+  };
+  console.warn = function(...args) {
+    originalWarn.apply(console, args);
+    window.__consoleLogs.push('[WARN] ' + args.map(a => String(a)).join(' '));
+  };
+  window.copyConsoleLogsToClipboard = async function() {
+    const text = window.__consoleLogs.join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('✓ Logs kopiert! (' + window.__consoleLogs.length + ' Zeilen)');
+    } catch (e) {
+      console.error('Fehler beim Kopieren:', e);
+      alert('Fehler beim Kopieren in die Zwischenablage');
+    }
+  };
+  // Attach click handler to button when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() {
+      const btn = document.getElementById('debugCopyLogsBtn');
+      if (btn) btn.onclick = window.copyConsoleLogsToClipboard;
+    });
+  } else {
+    const btn = document.getElementById('debugCopyLogsBtn');
+    if (btn) btn.onclick = window.copyConsoleLogsToClipboard;
+  }
+}
+
 (function () {
   const topicState = {};
   let ws = null;
   let wsDebugEnabled = false;
+  let graphMode = 'inline'; // 'inline' (default) or 'global'
 
   const dirtyFields = new Set(); // Set of "topic\u0000field"
   let renderScheduled = false;
 
   const graphCharts = {}; // { graph_name: { chart, datasets: { label: dataset }, maxCount } }
+  const sharedGraphs = new Set(); // Set of graph names used in multiple fields
+  
+  function updateSharedGraphs() {
+    // Count how many fields use each graph name
+    const graphCounts = {};
+    
+    Object.entries(topicState).forEach(([topic, data]) => {
+      Object.entries(data).forEach(([fieldKey, fieldValue]) => {
+        // fieldValue is the raw field data (potentially { graph, label, values, ... })
+        if (fieldValue && typeof fieldValue === 'object' && fieldValue.graph) {
+          const graphName = fieldValue.graph;
+          graphCounts[graphName] = (graphCounts[graphName] || 0) + 1;
+        }
+      });
+    });
+    
+    if (wsDebugEnabled) {
+      console.log(`[updateSharedGraphs] graphCounts=`, graphCounts);
+    }
+    
+    // Mark graphs with count > 1 as shared
+    sharedGraphs.clear();
+    Object.entries(graphCounts).forEach(([graphName, count]) => {
+      if (count > 1) {
+        sharedGraphs.add(graphName);
+        if (wsDebugEnabled) console.log(`[updateSharedGraphs] SHARED: "${graphName}" (${count} fields)`);
+      }
+    });
+  }
+  
+  function graphsHostEl() {
+    return byId('graphsContainer') || document.body;
+  }
+
 
   const byId = (id) => document.getElementById(id);
   const formatTopic = (t) => String(t || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -272,13 +347,76 @@
       row.style.alignItems = 'stretch';
     }
 
-    let labelEl = row.querySelector('label');
-    if (!labelEl) {
-      labelEl = document.createElement('label');
-      row.appendChild(labelEl);
-    }
-    labelEl.textContent = key;
+    // Check if this graph is shared (used in multiple fields)
+    let graphUsageCount = 0;
+    Object.values(topicState).forEach(data => {
+      Object.values(data).forEach(fieldValue => {
+        if (fieldValue && typeof fieldValue === 'object' && fieldValue.graph === graphData.graph) {
+          graphUsageCount++;
+        }
+      });
+    });
+    const isShared = graphUsageCount > 1;
 
+    // For shared graphs, don't show label at all
+    if (!isShared) {
+      let labelEl = row.querySelector('label');
+      if (!labelEl) {
+        labelEl = document.createElement('label');
+        row.appendChild(labelEl);
+      }
+      labelEl.textContent = key;
+    } else {
+      // Remove label for shared graphs
+      const labelEl = row.querySelector('label');
+      if (labelEl) labelEl.remove();
+    }
+
+    if (wsDebugEnabled) {
+      console.log(`[updateGraphRow] topic=${topic}, key=${key}, graph=${graphData.graph}, isShared=${isShared}`);
+    }
+
+    // For shared graphs, track per card (topic) and only render once
+    if (isShared) {
+      const cardEl = row.parentElement; // The .card-content
+      const cardParent = cardEl ? cardEl.parentElement : null; // The .card
+      
+      // Check if this graph already exists in the DOM of this card
+      const graphId = `graph-${graphData.graph}`;
+      const existingGraphInCard = cardParent ? cardParent.querySelector(`#${graphId}`) : null;
+      
+      if (wsDebugEnabled) {
+        console.log(`[updateGraphRow] shared: graphId=${graphId}, existingInCard=${!!existingGraphInCard}`);
+      }
+      
+      if (!existingGraphInCard) {
+        // First occurrence in this card: render the graph
+        let host = row.querySelector('.graph-host');
+        if (!host) {
+          host = document.createElement('div');
+          host.className = 'graph-host';
+          host.style.marginTop = '0.35rem';
+          host.style.position = 'relative';
+          host.style.height = '220px';
+          host.style.width = '100%';
+          row.appendChild(host);
+        }
+        if (wsDebugEnabled) {
+          console.log(`[updateGraphRow] rendering graph to host`);
+        }
+        renderGraph(topic, key, graphData, host);
+      } else {
+        // Already rendered for this shared graph in this card, don't render
+        const existingHost = row.querySelector('.graph-host');
+        if (existingHost) existingHost.remove();
+        if (wsDebugEnabled) {
+          console.log(`[updateGraphRow] skipping (already in DOM)`);
+        }
+      }
+      return;
+    }
+
+    // For non-shared graphs, show a regular host container
     let host = row.querySelector('.graph-host');
     if (!host) {
       host = document.createElement('div');
@@ -296,6 +434,9 @@
   function renderTopics() {
     const container = byId('cardsContainer');
     if (!container) return;
+
+    // Analyze which graphs are shared (used in multiple fields)
+    updateSharedGraphs();
 
     // Preserve the current focus so a re-order/rebuild doesn't break typing.
     let active = null;
@@ -426,6 +567,11 @@
       const msg = JSON.parse(text);
 
       if (msg.topic === 'graph_point' && msg.data) {
+        if (wsDebugEnabled) {
+          try {
+            console.log('[ModelGeneric] graph_point', msg.data);
+          } catch (_) {}
+        }
         handleGraphPoint(msg.data);
         return;
       }
@@ -505,13 +651,72 @@
 
   function ensureGraph(graphName, maxCount, hostEl) {
     let graphContainer = byId(`graph-${graphName}`);
+    let attachedHere = false;
+
+    if (wsDebugEnabled) {
+      console.log(`[ensureGraph] graphName=${graphName}, hostEl=${hostEl?.id || '?'}, exists=${!!graphContainer}, graphCharts[${graphName}]=${!!graphCharts[graphName]}`);
+    }
+
+    function makeChart(canvas) {
+      if (!canvas || !window.Chart) return null;
+      const ctx = canvas.getContext('2d');
+      return new window.Chart(ctx, {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 200 },
+          scales: {
+            x: {
+              type: 'linear',
+              display: true,
+              title: { display: true, text: 'Zeit' },
+              ticks: {
+                callback: (value) => {
+                  const n = typeof value === 'number' ? value : parseFloat(String(value));
+                  if (!isFinite(n)) return String(value);
+
+                  // Heuristic:
+                  // - epoch-ms is ~1.7e12
+                  // - epoch-s is ~1.7e9
+                  // - uptime ms is usually < 1e9 for typical runtimes
+                  let ms = n;
+                  if (n >= 1e12) {
+                    ms = n;
+                    return new Date(ms).toLocaleTimeString('de-DE');
+                  }
+                  if (n >= 1e9) {
+                    ms = n * 1000;
+                    return new Date(ms).toLocaleTimeString('de-DE');
+                  }
+
+                  // uptime ms -> mm:ss
+                  const totalSeconds = Math.floor(ms / 1000);
+                  const minutes = Math.floor(totalSeconds / 60);
+                  const seconds = totalSeconds % 60;
+                  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+                }
+              }
+            },
+            y: { display: true, title: { display: true, text: 'Wert' }, beginAtZero: false }
+          },
+          plugins: { legend: { display: true, position: 'top' } }
+        }
+      });
+    }
+
     if (!graphContainer) {
       graphContainer = document.createElement('div');
       graphContainer.id = `graph-${graphName}`;
 
-      // Inline-first container (fits into the owning card).
+      // Container for Chart.js.
+      // In inline mode this lives inside a fixed-height host (.graph-host).
+      // In global mode it lives inside #graphsContainer and therefore needs its own height.
       graphContainer.style.width = '100%';
-      graphContainer.style.height = '100%';
+      graphContainer.style.position = 'relative';
+      const isInlineHost = !!(hostEl && hostEl.classList && hostEl.classList.contains('graph-host'));
+      graphContainer.style.height = isInlineHost ? '100%' : '320px';
       graphContainer.style.background = '#fff';
       graphContainer.style.border = '1px solid rgba(15, 23, 42, 0.08)';
       graphContainer.style.borderRadius = '12px';
@@ -519,76 +724,96 @@
 
       const canvas = document.createElement('canvas');
       canvas.id = `chart-${graphName}`;
-      canvas.style.width = '100%';
-      canvas.style.height = '100%';
       graphContainer.appendChild(canvas);
 
       const fallbackHost = byId('graphsContainer');
-      (hostEl || fallbackHost || document.body).appendChild(graphContainer);
+      const targetHost = hostEl || fallbackHost || document.body;
+      
+      if (wsDebugEnabled) {
+        console.log(`[ensureGraph] before append: hostEl=${!!hostEl}, fallbackHost=${!!fallbackHost}, targetHost=${targetHost?.id || targetHost?.tagName || '?'}`);
+      }
+      
+      targetHost.appendChild(graphContainer);
+      attachedHere = !!hostEl; // only treat as "attached here" when we were asked to render inline
+
+      if (wsDebugEnabled) {
+        console.log(`[ensureGraph] appended graph-${graphName} to`, { targetHostId: targetHost?.id || targetHost?.tagName || 'unknown', containerId: graphContainer.id, attachedHere });
+        // Verify it was actually added
+        const verify = byId(`graph-${graphName}`);
+        console.log(`[ensureGraph] verify: byId(graph-${graphName}) =`, !!verify, verify?.parentElement?.id || verify?.parentElement?.tagName || 'unknown');
+      }
 
       if (!window.Chart) {
         console.warn('Chart.js not loaded; graph disabled');
-        graphCharts[graphName] = { chart: null, datasets: {}, maxCount: maxCount || 60 };
-        return graphCharts[graphName];
+        graphCharts[graphName] = {
+          chart: null,
+          datasets: {},
+          maxCount: maxCount || 60,
+          container: graphContainer,
+          host: graphContainer.parentElement
+        };
+        return { graphInfo: graphCharts[graphName], attachedHere };
       }
-
-      const ctx = canvas.getContext('2d');
       graphCharts[graphName] = {
-        chart: new window.Chart(ctx, {
-          type: 'line',
-          data: { datasets: [] },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: { duration: 200 },
-            scales: {
-              x: {
-                type: 'linear',
-                display: true,
-                title: { display: true, text: 'Zeit' },
-                ticks: {
-                  callback: (value) => {
-                    const n = typeof value === 'number' ? value : parseFloat(String(value));
-                    if (!isFinite(n)) return String(value);
-
-                    // Heuristic:
-                    // - epoch-ms is ~1.7e12
-                    // - epoch-s is ~1.7e9
-                    // - uptime ms is usually < 1e9 for typical runtimes
-                    let ms = n;
-                    if (n >= 1e12) {
-                      ms = n;
-                      return new Date(ms).toLocaleTimeString('de-DE');
-                    }
-                    if (n >= 1e9) {
-                      ms = n * 1000;
-                      return new Date(ms).toLocaleTimeString('de-DE');
-                    }
-
-                    // uptime ms -> mm:ss
-                    const totalSeconds = Math.floor(ms / 1000);
-                    const minutes = Math.floor(totalSeconds / 60);
-                    const seconds = totalSeconds % 60;
-                    return `${minutes}:${String(seconds).padStart(2, '0')}`;
-                  }
-                }
-              },
-              y: { display: true, title: { display: true, text: 'Wert' }, beginAtZero: false }
-            },
-            plugins: { legend: { display: true, position: 'top' } }
-          }
-        }),
+        chart: makeChart(canvas),
         datasets: {},
-        maxCount: maxCount || 60
+        maxCount: maxCount || 60,
+        container: graphContainer,
+        host: graphContainer.parentElement
       };
+      if (wsDebugEnabled) {
+        console.log(`[ensureGraph] created chart for ${graphName}`, { chartExists: !!graphCharts[graphName].chart, parentId: graphContainer.parentElement?.id });
+      }
     }
 
-    // Keep chart DOM positioned where it belongs.
-    if (hostEl && graphContainer.parentElement !== hostEl) {
-      hostEl.appendChild(graphContainer);
+    // IMPORTANT: Do NOT move an existing graph container between different rows.
+    // Multiple model fields may share the same graph name (e.g. "temp") to create
+    // multiple datasets in one chart (distinguished by label). Moving the same DOM
+    // node causes the chart to "disappear" or flicker in the other rows.
+    const info = graphCharts[graphName] || { chart: null, datasets: {}, maxCount: maxCount || 60 };
+    if (!graphCharts[graphName]) {
+      graphCharts[graphName] = info;
+      info.container = graphContainer;
+      info.host = graphContainer.parentElement;
+    }
+    // If info already exists, DON'T change its container/host - reuse the existing chart!
+
+    // If the DOM already contains a chart container but our JS state was reset (e.g. bfcache,
+    // hot reload, multiple initializations), recover the existing Chart instance.
+    if (window.Chart && !info.chart) {
+      const canvas = graphContainer.querySelector('canvas') || byId(`chart-${graphName}`);
+      if (canvas) {
+        let existing = null;
+        try {
+          if (typeof window.Chart.getChart === 'function') existing = window.Chart.getChart(canvas);
+        } catch (_) {}
+        info.chart = existing || makeChart(canvas);
+
+        // Ensure recovered/recreated chart knows about already-tracked datasets.
+        if (info.chart && info.datasets && Object.keys(info.datasets).length) {
+          try {
+            info.chart.data.datasets = Object.values(info.datasets);
+            info.chart.update();
+          } catch (_) {}
+        }
+      }
     }
 
-    return graphCharts[graphName];
+    // If we recovered a chart that already has datasets, sync them into our map.
+    if (info.chart && (!info.datasets || Object.keys(info.datasets).length === 0)) {
+      info.datasets = info.datasets || {};
+      try {
+        (info.chart.data.datasets || []).forEach((ds) => {
+          if (ds && ds.label) info.datasets[String(ds.label)] = ds;
+        });
+      } catch (_) {}
+    }
+
+    attachedHere = !!hostEl && graphContainer.parentElement === hostEl;
+    if (wsDebugEnabled) {
+      console.log(`[ensureGraph] final state`, { graphName, chartExists: !!info.chart, datasetsCount: Object.keys(info.datasets).length, containerParentId: graphContainer.parentElement?.id });
+    }
+    return { graphInfo: info, attachedHere };
   }
 
   function renderGraph(_topic, key, graphData, hostEl) {
@@ -596,9 +821,51 @@
     const label = graphData.label || key;
     const maxCount = graphData.max_count || 60;
 
-    const graphInfo = ensureGraph(graphName, maxCount, hostEl);
-    if (!graphInfo) return;
+    // Count how many fields RIGHT NOW use this graph name (don't rely on sharedGraphs which may be stale)
+    let graphUsageCount = 0;
+    Object.values(topicState).forEach(data => {
+      Object.values(data).forEach(fieldValue => {
+        if (fieldValue && typeof fieldValue === 'object' && fieldValue.graph === graphName) {
+          graphUsageCount++;
+        }
+      });
+    });
+    
+    const isShared = graphUsageCount > 1;
+
+    // Always render to the passed hostEl (the one in the card row)
+    const targetHost = hostEl;
+    
+    if (wsDebugEnabled) {
+      console.log(`[renderGraph] graphName=${graphName}, label=${label}, hostEl=${hostEl?.id || '?'}, isShared=${isShared} (count=${graphUsageCount}), graphMode=${graphMode}, targetHost=${targetHost?.id || targetHost?.tagName || '?'}`);
+    }
+    
+    const ensured = ensureGraph(graphName, maxCount, targetHost);
+    const graphInfo = ensured && ensured.graphInfo;
+    if (!graphInfo) {
+      console.warn(`[renderGraph] no graphInfo for ${graphName}`);
+      return;
+    }
     if (graphData.max_count) graphInfo.maxCount = graphData.max_count;
+
+    // Inline mode only: avoid moving a single chart between multiple row hosts.
+    if (graphMode === 'inline') {
+      if (hostEl && !ensured.attachedHere) {
+        hostEl.innerHTML = '';
+        hostEl.style.height = 'auto';
+        const hint = document.createElement('div');
+        hint.className = 'graph-shared-hint';
+        hint.style.padding = '0.35rem 0.5rem';
+        hint.style.background = 'rgba(15, 23, 42, 0.04)';
+        hint.style.border = '1px dashed rgba(15, 23, 42, 0.15)';
+        hint.style.borderRadius = '8px';
+        hint.style.fontSize = '0.9rem';
+        hint.textContent = `↪ nutzt Graph "${graphName}" (Serie: ${label})`;
+        hostEl.appendChild(hint);
+      } else if (hostEl) {
+        hostEl.style.height = '220px';
+      }
+    }
 
     if (!graphInfo.datasets[label]) {
       const colors = ['#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4'];
@@ -615,7 +882,8 @@
       };
 
       if (graphInfo.chart) {
-        graphInfo.chart.data.datasets.push(graphInfo.datasets[label]);
+        // Keep Chart.js dataset list in sync with our label->dataset map.
+        graphInfo.chart.data.datasets = Object.values(graphInfo.datasets);
       }
     }
 
@@ -636,6 +904,8 @@
           dataset.data.push({ x, y: point.y });
         });
 
+        // Ensure all datasets are present (multi-series) before updating.
+        graphInfo.chart.data.datasets = Object.values(graphInfo.datasets);
         graphInfo.chart.update();
       }
     }
@@ -646,13 +916,45 @@
     const graphName = data.graph;
     const label = data.label;
 
-    const graphInfo = graphCharts[graphName];
-    if (!graphInfo || !graphInfo.chart) return;
+    if (wsDebugEnabled) {
+      console.log(`[handleGraphPoint] graph=${graphName}, label=${label}, x=${data.x}, y=${data.y}`);
+    }
+
+    // Allow pure streaming mode: if the page never received a graph_xy_ring snapshot
+    // for this (graph,label) yet, create the chart + dataset on the fly.
+    let graphInfo = graphCharts[graphName];
+    if (!graphInfo) {
+      if (wsDebugEnabled) console.log(`[handleGraphPoint] no chart yet, creating...`);
+      const ensured = ensureGraph(graphName, 60, graphsHostEl());
+      graphInfo = ensured && ensured.graphInfo;
+    }
+    if (!graphInfo || !graphInfo.chart) {
+      console.warn(`[handleGraphPoint] no chart for ${graphName}`);
+      return;
+    }
 
     const x = data.x != null ? Number(data.x) : Date.now();
     const y = data.y;
 
-    if (!graphInfo.datasets[label]) return;
+    if (!graphInfo.datasets[label]) {
+      const colors = ['#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4'];
+      const colorIndex = Object.keys(graphInfo.datasets).length % colors.length;
+
+      graphInfo.datasets[label] = {
+        label,
+        data: [],
+        borderColor: colors[colorIndex],
+        backgroundColor: colors[colorIndex] + '20',
+        borderWidth: 2,
+        tension: 0.3,
+        fill: true
+      };
+
+      graphInfo.chart.data.datasets = Object.values(graphInfo.datasets);
+      if (wsDebugEnabled) {
+        console.log(`[handleGraphPoint] added dataset label=${label}, now ${graphInfo.chart.data.datasets.length} total datasets`);
+      }
+    }
 
     graphInfo.datasets[label].data.push({ x, y });
 
@@ -665,13 +967,33 @@
       });
     }
 
+    graphInfo.chart.data.datasets = Object.values(graphInfo.datasets);
     graphInfo.chart.update();
+    if (wsDebugEnabled) {
+      console.log(`[handleGraphPoint] chart updated, ${graphName}.${label} now has ${graphInfo.datasets[label].data.length} points`);
+    }
   }
 
   function init(config) {
     const wsPath = (config && config.wsPath) || '/ws';
-    wsDebugEnabled = !!((config && config.debug) || window.__ESPWEBUTILS_DEBUG_WS__);
+    let debugFromConfig = (config && config.debug) || window.__ESPWEBUTILS_DEBUG_WS__;
+    
+    // Fallback: read debug from URL if not in config
+    if (!debugFromConfig) {
+      try {
+        const qs = new URLSearchParams(window.location.search);
+        debugFromConfig = qs.get('debug') === '1';
+      } catch (_) {}
+    }
+    
+    wsDebugEnabled = !!debugFromConfig;
+    graphMode = (config && config.graphMode) || (config && config.graphsMode) || graphMode;
+    console.log('[ModelGeneric] init called', { wsPath, graphMode, debug: wsDebugEnabled, debugFromConfig, config });
+    
+    // Show debug button if debug mode is enabled
     if (wsDebugEnabled) {
+      const debugBtn = byId('debugCopyLogsBtn');
+      if (debugBtn) debugBtn.style.display = 'inline-block';
       logWsLine(`debug_enabled wsPath=${wsPath}`, 'in');
     }
     connectWs(wsPath);

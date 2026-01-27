@@ -5,18 +5,18 @@
   function readQueryConfig() {
     try {
       const qs = new URLSearchParams(window.location.search);
-      const ws = qs.get('ws');
-      const title = qs.get('title');
-      const alias = qs.get('alias');
-      const demo = qs.get('demo') === '1';
-      const debug = qs.get('debug') === '1';
-      return {
-        wsPath: ws || undefined,
-        title: title || undefined,
-        alias: alias || undefined,
-        demo,
-        debug
-      };
+      const cfg = {};
+
+      if (qs.has('ws')) cfg.wsPath = qs.get('ws') || undefined;
+      if (qs.has('title')) cfg.title = qs.get('title') || undefined;
+      if (qs.has('alias')) cfg.alias = qs.get('alias') || undefined;
+      if (qs.has('graphMode') || qs.has('graph')) cfg.graphMode = (qs.get('graphMode') || qs.get('graph')) || undefined;
+
+      // Only override defaults if the flag is explicitly present.
+      if (qs.has('demo')) cfg.demo = qs.get('demo') === '1';
+      if (qs.has('debug')) cfg.debug = qs.get('debug') === '1';
+
+      return cfg;
     } catch (_) {
       return {};
     }
@@ -24,7 +24,15 @@
 
   document.addEventListener('DOMContentLoaded', () => {
     const queryCfg = readQueryConfig();
+    console.log('[model_page_bootstrap] queryCfg:', queryCfg);
+    
+    // Auto-enable debug if demo=1
+    if (queryCfg.demo && !queryCfg.debug) {
+      queryCfg.debug = true;
+    }
+    
     const cfg = Object.assign({ wsPath: '/ws' }, window.MODEL_UI_CONFIG || {}, queryCfg);
+    console.log('[model_page_bootstrap] final cfg:', cfg);
 
     // If we were redirected to /model.html but want to present a friendly endpoint
     // (e.g. /admin or /model2), replace the address bar entry.
@@ -54,7 +62,11 @@
     }
 
     if (window.ModelGeneric) {
-      window.ModelGeneric.init({ wsPath: cfg.wsPath || '/ws', debug: !!cfg.debug });
+      window.ModelGeneric.init({
+        wsPath: cfg.wsPath || '/ws',
+        debug: !!cfg.debug,
+        graphMode: cfg.graphMode
+      });
     }
   });
 })();

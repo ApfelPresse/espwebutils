@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chart Test</title>
+  <style>
+    :root {
+      --bg: #f7f9fc;
+      --text: #0f172a;
+      --border: rgba(15, 23, 42, 0.12);
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 1.25rem;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      padding: 1rem;
+    }
+
+    .row {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 0.25rem 0.6rem;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.06);
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      font-size: 0.9rem;
+    }
+
+    .graphHost {
+      position: relative;
+      width: 100%;
+      height: 320px;
+    }
+
+    canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    button {
+      border: 1px solid rgba(15, 23, 42, 0.2);
+      background: #fff;
+      padding: 0.45rem 0.75rem;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: rgba(15, 23, 42, 0.04);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <h2 style="margin: 0 0 0.75rem 0;">Standalone Graph Test</h2>
+
+    <div class="card">
+      <div class="row">
+        <span class="pill" id="status">Status: init</span>
+        <span class="pill" id="lastPoint">Letzter Punkt: -</span>
+        <button id="resetBtn" type="button">Reset</button>
+      </div>
+
+      <div class="graphHost">
+        <canvas id="chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Uses local Chart.js bundle shipped in this repo -->
+  <script src="/js/chart.umd.min.js"></script>
+
+  <script>
+    (function () {
+      const statusEl = document.getElementById('status');
+      const lastEl = document.getElementById('lastPoint');
+      const resetBtn = document.getElementById('resetBtn');
+      const canvas = document.getElementById('chart');
+
+      if (!window.Chart) {
+        statusEl.textContent = 'Status: Chart.js fehlt (Pfad /js/chart.umd.min.js)';
+        statusEl.style.background = 'rgba(198,40,40,0.10)';
+        return;
+      }
+
+      let x = 0; // uptime-like ms
+      let y1 = 25.0;
+      let y2 = 25.2;
+      let y3 = 24.8;
+      const maxCount = 60;
+      const periodMs = 5000;
+
+      function rand01() {
+        return Math.random();
+      }
+
+      function nextY(prev) {
+        // Random-walk around 25°C
+        const delta = (rand01() - 0.5) * 0.6; // ±0.3°C
+        // Gentle pull back towards 25
+        const pull = (25.0 - prev) * 0.05;
+        return prev + delta + pull;
+      }
+
+      const chart = new window.Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          datasets: [
+            {
+              label: 'Ds18b20 °C',
+              data: [],
+              borderColor: '#2196f3',
+              backgroundColor: 'rgba(33,150,243,0.12)',
+              borderWidth: 2,
+              tension: 0.25,
+              fill: true,
+              pointRadius: 3
+            },
+            {
+              label: 'Sht3x °C',
+              data: [],
+              borderColor: '#4caf50',
+              backgroundColor: 'rgba(76,175,80,0.12)',
+              borderWidth: 2,
+              tension: 0.25,
+              fill: true,
+              pointRadius: 3
+            },
+            {
+              label: 'Scd41 °C',
+              data: [],
+              borderColor: '#ff9800',
+              backgroundColor: 'rgba(255,152,0,0.12)',
+              borderWidth: 2,
+              tension: 0.25,
+              fill: true,
+              pointRadius: 3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 150 },
+          scales: {
+            x: {
+              type: 'linear',
+              title: { display: true, text: 'Zeit (mm:ss)' },
+              ticks: {
+                callback: (value) => {
+                  const ms = Number(value);
+                  if (!isFinite(ms)) return String(value);
+                  const totalSeconds = Math.floor(ms / 1000);
+                  const minutes = Math.floor(totalSeconds / 60);
+                  const seconds = totalSeconds % 60;
+                  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+                }
+              }
+            },
+            y: {
+              title: { display: true, text: '°C' },
+              suggestedMin: 23,
+              suggestedMax: 27
+            }
+          },
+          plugins: {
+            legend: { display: true }
+          }
+        }
+      });
+
+      function pushPoint() {
+        x += periodMs;
+        y1 = nextY(y1);
+        y2 = nextY(y2);
+        y3 = nextY(y3);
+
+        // Small x jitter per series (keeps monotonic because periodMs >> jitter)
+        const jitter = () => Math.round((rand01() - 0.5) * 500); // ±250ms
+        const x1 = x + jitter();
+        const x2 = x + jitter();
+        const x3 = x + jitter();
+
+        const ds1 = chart.data.datasets[0];
+        const ds2 = chart.data.datasets[1];
+        const ds3 = chart.data.datasets[2];
+        ds1.data.push({ x: x1, y: y1 });
+        ds2.data.push({ x: x2, y: y2 });
+        ds3.data.push({ x: x3, y: y3 });
+        if (ds1.data.length > maxCount) ds1.data.shift();
+        if (ds2.data.length > maxCount) ds2.data.shift();
+        if (ds3.data.length > maxCount) ds3.data.shift();
+
+        chart.update();
+
+        statusEl.textContent = `Status: läuft (alle ${Math.round(periodMs / 1000)}s)`;
+        lastEl.textContent = `Letzter Punkt: x≈${x}ms, y1=${y1.toFixed(2)}°C, y2=${y2.toFixed(2)}°C, y3=${y3.toFixed(2)}°C`;
+      }
+
+      function reset() {
+        x = 0;
+        y1 = 25.0;
+        y2 = 25.2;
+        y3 = 24.8;
+        chart.data.datasets[0].data = [];
+        chart.data.datasets[1].data = [];
+        chart.data.datasets[2].data = [];
+        chart.update();
+        lastEl.textContent = 'Letzter Punkt: -';
+      }
+
+      resetBtn.addEventListener('click', reset);
+
+      // Seed a few initial points so the chart isn't empty.
+      for (let i = 0; i < 6; i++) pushPoint();
+
+      window.setInterval(pushPoint, periodMs);
+    })();
+  </script>
+</body>
+
+</html>

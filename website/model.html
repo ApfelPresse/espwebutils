@@ -18,6 +18,12 @@
 
     body { background: var(--bg); color: var(--text); }
 
+    /* Ensure dynamically-created Chart.js canvases display correctly */
+    canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
     .page-wrap {
       max-width: 980px;
       margin: 0 auto;
@@ -32,6 +38,13 @@
       align-items: center;
       flex-wrap: wrap;
       margin-bottom: 1rem;
+    }
+
+    #debugCopyLogsBtn {
+      margin-left: auto;
+      padding: 0.4rem 0.8rem !important;
+      font-size: 0.8rem;
+      white-space: nowrap;
     }
 
     .card-grid { display: flex; flex-direction: column; gap: 1rem; }
@@ -97,10 +110,11 @@
     <div id="mainContent" style="display:block;">
       <div class="topbar">
         <span id="wsBadge" class="chip disconnected">WS: getrennt</span>
+        <button id="debugCopyLogsBtn" class="btn-small" style="display:none; background-color:#1976d2; color:white;" onclick="window.copyConsoleLogsToClipboard()">Logs kopieren</button>
       </div>
 
-    <div id="cardsContainer" class="card-grid"></div>
-    <div id="graphsContainer" class="card-grid" style="margin-top:1rem;"></div>
+      <div id="cardsContainer" class="card-grid"></div>
+      <div id="graphsContainer" class="card-grid" style="margin-top:1rem;"></div>
 
     <div id="wsDebugCard" class="card" style="margin-top:1rem; display:none;">
       <div class="card-content">
@@ -123,6 +137,13 @@
 
   <!-- Shared renderer + optional admin extras -->
   <script src="/js/model_generic.js"></script>
+  <script>
+    // Use inline mode by default; shared graphs (used in multiple fields) will automatically
+    // render to graphsContainer via intelligent analysis in updateSharedGraphs()
+    window.MODEL_UI_CONFIG = Object.assign({}, window.MODEL_UI_CONFIG || {}, {
+      wsPath: '/ws'
+    });
+  </script>
   <script src="/js/model_page_bootstrap.js"></script>
 </body>
 

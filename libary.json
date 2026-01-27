@@ -1,0 +1,12 @@
+{
+  "name": "espwebutils",
+  "version": "0.5.1",
+  "description": "ESP32 WiFi provisioning + OTA + graphs + web ui helpers",
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "dependencies": [
+    { "name": "ESP32Async/AsyncTCP", "version": "3.4.9" },
+    { "name": "ESP32Async/ESPAsyncWebServer", "version": "3.9.3" },
+    { "name": "bblanchon/ArduinoJson", "version": "6.21.2" }
+  ]
+}
