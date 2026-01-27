@@ -26,7 +26,7 @@ public:
     }
   } test;
 
-  Model() : ModelBase(80, "/ws2", "model2") {
+  Model() : ModelBase(80, "/main", "model") {
     test.value = 1;
     registerTopic("test", test);
   }

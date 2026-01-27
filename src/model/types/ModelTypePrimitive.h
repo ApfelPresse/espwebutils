@@ -5,8 +5,8 @@
 #include <functional>
 
 // ============================================================================
-// StringBuffer<N> - Minimales String-Wrapper für Template-Parameter
-// Ersatz für StaticString mit vereinfachter API
+// StringBuffer<N> - minimal fixed-size string wrapper (template-friendly)
+// Replacement for StaticString with a simplified API
 // Note: No on_change callback - use Var<StringBuffer<N>> wrapper for callbacks
 // ============================================================================
 
@@ -37,7 +37,7 @@ struct StringBuffer {
   const char* c_str() const { return buf; }
   char* data() { return buf; }
 
-  // Vereinfachte Operatoren
+  // Convenience operators
   StringBuffer& operator=(const char* s) { 
     LOG_TRACE_F("[StringBuffer] operator=: assigning '%s'", s ? s : "nullptr");
     set(s); 

@@ -8,8 +8,40 @@
   <link href="/css/materialize.min.css" rel="stylesheet">
   <link href="/css/material-icons.css" rel="stylesheet">
   <style>
+    :root {
+      --bg: #f7f9fc;
+      --card-radius: 14px;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: rgba(15, 23, 42, 0.08);
+    }
+
     body {
-      padding: 2rem;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .page-wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 1.25rem;
+    }
+
+    h4 { margin: 0 0 0.75rem 0; font-weight: 700; letter-spacing: -0.01em; }
+
+    .card {
+      border-radius: var(--card-radius);
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      border: 1px solid var(--border);
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin: 0;
     }
 
     .wifi-item {
@@ -39,6 +71,12 @@
       display: block;
     }
 
+    .status-message.info {
+      background-color: #e3f2fd;
+      color: #1565c0;
+      display: block;
+    }
+
     .status-message.error {
       background-color: #ffcdd2;
       color: #c62828;
@@ -47,15 +85,16 @@
 
     .current-ssid {
       background-color: #e3f2fd;
-      padding: 1rem;
-      border-radius: 4px;
+      padding: 0.9rem 1rem;
+      border-radius: 10px;
+      border: 1px solid rgba(30, 136, 229, 0.15);
       margin-bottom: 1rem;
     }
 
     #debugPanel {
       margin-top: 2rem;
       border: 1px solid #ddd;
-      border-radius: 4px;
+      border-radius: 10px;
       background-color: #f5f5f5;
       display: flex;
       flex-direction: column;
@@ -104,28 +143,37 @@
       display: inline-block;
       min-width: 40px;
     }
+
+    @media (max-width: 600px) {
+      .page-wrap { padding: 0.9rem; }
+      h4 { font-size: 1.6rem; }
+    }
   </style>
 </head>
 
 <body>
-  <h4>📶 WLAN Konfiguration</h4>
+  <div class="page-wrap">
+    <h4>WLAN Konfiguration</h4>
 
-  <!-- Currently connected WiFi -->
-  <div class="current-ssid" id="currentSsid" style="display: none;">
-    <p><strong>Aktuell verbunden:</strong> <span id="connectedSsid">-</span></p>
-  </div>
+    <!-- Currently connected WiFi -->
+    <div class="current-ssid" id="currentSsid" style="display: none;">
+      <p style="margin:0;"><strong>Aktuell verbunden:</strong> <span id="connectedSsid">-</span></p>
+    </div>
 
-  <!-- Status message -->
-  <div class="status-message" id="statusMessage"></div>
+    <!-- Status message -->
+    <div class="status-message" id="statusMessage"></div>
 
-  <!-- Available networks -->
-  <h5>Verfügbare Netzwerke
-    <a class="btn-floating btn-small waves-effect waves-light blue right" onclick="scanNetworks()" title="Netzwerke scannen">
-      <i class="material-icons">refresh</i>
-    </a>
-  </h5>
+    <!-- Available networks -->
+    <div class="card" style="margin-top: 1rem;">
+      <div class="card-content">
+        <div class="section-title">
+          <h5 style="margin:0; font-weight:700;">Verfügbare Netzwerke</h5>
+          <a class="btn-floating btn-small waves-effect waves-light blue" onclick="scanNetworks()" title="Netzwerke scannen">
+            <i class="material-icons">refresh</i>
+          </a>
+        </div>
 
-  <div id="loader">
+    <div id="loader">
     <div class="preloader-wrapper active">
       <div class="spinner-layer spinner-blue-only">
         <div class="circle-clipper left">
@@ -139,19 +187,21 @@
         </div>
       </div>
     </div>
-    <p>Netzwerke werden aktualisiert...</p>
-  </div>
+          <p style="margin:0.75rem 0 0 0; color: var(--muted);">Netzwerke werden aktualisiert...</p>
+        </div>
 
-  <ul class="collection" id="wifiList"></ul>
+        <ul class="collection" id="wifiList" style="margin-top: 0.75rem;"></ul>
+      </div>
+    </div>
 
   <!-- Debug Panel (shown only in TRACE mode) -->
-  <div id="debugPanel" style="display: none;">
-    <h6>
-      WebSocket Debug Log
-      <a class="btn-flat btn-small waves-effect white-text right" onclick="clearDebugLog()" style="padding: 0 0.5rem;">Clear</a>
-    </h6>
-    <div id="debugLog"></div>
-  </div>
+    <div id="debugPanel" style="display: none;">
+      <h6>
+        WebSocket Debug Log
+        <a class="btn-flat btn-small waves-effect white-text right" onclick="clearDebugLog()" style="padding: 0 0.5rem;">Clear</a>
+      </h6>
+      <div id="debugLog"></div>
+    </div>
 
   <!-- Password modal -->
   <div id="passModal" class="modal">
@@ -218,6 +268,7 @@
     // ========== WebSocket Communication ==========
     let ws = null;
     let passModal = null; // Global variable for modal
+    let pendingScan = false;
     let modelData = {
       wifi: {
         ssid: "",
@@ -225,6 +276,21 @@
         available_networks: []
       }
     };
+
+    function clearStatus() {
+      const statusDiv = document.getElementById('statusMessage');
+      statusDiv.textContent = '';
+      statusDiv.className = 'status-message';
+      statusDiv.style.display = 'none';
+    }
+
+    function showInfo(msg, autoHideMs = 2500) {
+      const statusDiv = document.getElementById('statusMessage');
+      statusDiv.textContent = msg;
+      statusDiv.className = 'status-message info';
+      statusDiv.style.display = 'block';
+      if (autoHideMs) setTimeout(clearStatus, autoHideMs);
+    }
 
     function connectWebSocket() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -237,6 +303,14 @@
       ws.onopen = () => {
         console.log("[WS] Connected");
         addDebugLog('✓ SUCCESS', 'WebSocket connected');
+
+        // Clear any stale "not connected" status from initial page load.
+        clearStatus();
+
+        if (pendingScan) {
+          pendingScan = false;
+          scanNetworks();
+        }
       };
       
       ws.onmessage = (event) => {
@@ -244,6 +318,9 @@
           const msg = JSON.parse(event.data);
           console.log("[WS] Received:", msg);
           addDebugLog('⬇ RX', msg);
+
+          // Any valid message means the connection works.
+          clearStatus();
           
           if (msg.topic === 'wifi') {
             updateWifiModel(msg.data);
@@ -259,12 +336,13 @@
       ws.onerror = (error) => {
         console.error("[WS] Error:", error);
         addDebugLog('⚠ ERROR', `WebSocket error: ${error.type}`);
-        showError("WebSocket-Fehler: Verbindung zum Gerät verloren");
+        showError("WebSocket-Fehler: Verbindung zum Gerät verloren", 5000);
       };
       
       ws.onclose = () => {
         console.log("[WS] Disconnected, reconnecting in 3 seconds...");
         addDebugLog('ℹ INFO', 'WebSocket closed, reconnecting in 3s...');
+        showInfo('WebSocket getrennt — verbinde erneut…', 1500);
         setTimeout(connectWebSocket, 3000);
       };
     }
@@ -332,9 +410,10 @@
 
       // Request scan via WebSocket (no /scan endpoint)
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        addDebugLog('⚠ ERROR', 'WebSocket not connected - cannot start scan');
-        showError('Nicht mit WebSocket verbunden');
-        document.getElementById('loader').style.display = 'none';
+        // During initial load the socket might not be open yet.
+        pendingScan = true;
+        addDebugLog('ℹ INFO', 'WebSocket not open yet - deferring scan until connected');
+        showInfo('Verbinde… starte Scan sobald WebSocket bereit ist', 2000);
         return;
       }
 
@@ -393,15 +472,16 @@
       const statusDiv = document.getElementById('statusMessage');
       statusDiv.textContent = msg;
       statusDiv.className = 'status-message success';
-      setTimeout(() => {
-        statusDiv.style.display = 'none';
-      }, 5000);
+      statusDiv.style.display = 'block';
+      setTimeout(clearStatus, 5000);
     }
 
-    function showError(msg) {
+    function showError(msg, autoHideMs) {
       const statusDiv = document.getElementById('statusMessage');
       statusDiv.textContent = msg;
       statusDiv.className = 'status-message error';
+      statusDiv.style.display = 'block';
+      if (autoHideMs) setTimeout(clearStatus, autoHideMs);
     }
 
     // ========== Init ==========
@@ -438,6 +518,8 @@
       scanNetworks();
     });
   </script>
+
+  </div>
 </body>
 
 </html>

@@ -28,6 +28,7 @@ void setup()
   });
 
   wifi.setUserModel(userModel);
+  wifi.generateDefaultPage(userModel, "/", "Sensors", false, false, false);
 
   wifi.begin();
 

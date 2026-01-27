@@ -45,7 +45,7 @@ public:
         _apPass(""),
         _mdnsHost("esp32"),
         _fallbackFile("/wifi.html"),
-        _infoMessage("<h1>Bitte</h1> wählen Sie ein WLAN aus, um den ESP32 zu konfigurieren."),
+        _infoMessage("<h1>Please</h1> select a WiFi network to configure the ESP32."),
         _staMode(false),
         _pendingRestart(false),
       _restartTime(0),
@@ -62,9 +62,13 @@ public:
   void setOtaPort(uint16_t port) { ota.setPort(port); }
   void setOtaWindowSeconds(uint32_t s) { model.ota.window_seconds = (int)s; }
 
-  void setApSsid(const String &ssid) { _apSsid = ssid; }
+  // Sets a default AP SSID used only if no AP SSID was stored in prefs yet.
+  // This must NOT overwrite an AP SSID already configured via the UI/model.
+  void setApSsid(const String &ssid) { _apSsid = ssid; _apSsidDefaultSet = true; }
   void setApPassword(const String &pass) { _apPass = pass; }
-  void setMdnsHost(const String &host) { _mdnsHost = host; _mdnsHostUserSet = true; }
+  // Sets a default mDNS hostname used only if no hostname was stored in prefs yet.
+  // This must NOT overwrite a hostname already configured via the admin UI.
+  void setMdnsHost(const String &host) { _mdnsHost = host; _mdnsHostDefaultSet = true; }
   // Improves mDNS responsiveness by disabling WiFi power save in STA mode.
   // Note: increases power consumption.
   void setLowLatencyWiFi(bool en = true) { _lowLatencyWiFi = en; }
@@ -123,44 +127,74 @@ public:
     LOG_INFO("========== WiFi Provisioner BEGIN ==========");
     
     // ===== STEP 1: Mount Filesystem =====
-    LOG_INFO("[INIT] SCHRITT 1: LittleFS mounting...");
+    LOG_INFO("[INIT] STEP 1: Mount LittleFS...");
     _littleFsAvailable = LittleFS.begin();
     if (!_littleFsAvailable) {
-      LOG_WARN("[INIT] LittleFS konnte nicht gestartet werden; benutze eingebettete Webfiles.");
-      if (_onStatus) _onStatus("LittleFS nicht gemountet — benutze eingebettete Webfiles.");
+      LOG_WARN("[INIT] LittleFS mount failed; using embedded webfiles.");
+      if (_onStatus) _onStatus("LittleFS not mounted — using embedded webfiles.");
     } else {
-      LOG_INFO("[INIT] LittleFS erfolgreich gemountet.");
+      LOG_INFO("[INIT] LittleFS mounted successfully.");
     }
 
+    // Cache filesystem probes to avoid repeated VFS open() error spam.
+    _hasIndexHtml = _littleFsAvailable && LittleFS.exists("/index.html");
+
     // ===== STEP 2: Load Model & Preferences =====
-    LOG_INFO("[INIT] SCHRITT 2: Model und Preferences laden...");
+    LOG_INFO("[INIT] STEP 2: Load model and Preferences...");
     model.begin();  // Calls ModelBase::begin() and ensurePasswords()
 
     if (_userModel) {
-      LOG_INFO("[INIT] Zusätzliches User-Model registriert -> begin()");
+      LOG_INFO("[INIT] User model registered -> begin()");
       _userModel->begin();
     }
+    // ===== STEP 2a: Apply defaults (mDNS/AP SSID) without overwriting prefs =====
+    const char* modelApSsid = model.wifi.ap_ssid.get().c_str();
+    const bool apModelIsDefault = (modelApSsid && (std::strcmp(modelApSsid, "ESP-Setup") == 0));
+    const bool apModelHasCustom = (modelApSsid && modelApSsid[0] != '\0' && !apModelIsDefault);
+
+    if (apModelHasCustom) {
+      _apSsid = modelApSsid;
+      LOG_INFO_F("[INIT] AP SSID loaded from prefs/model: %s", _apSsid.c_str());
+    } else if (_apSsidDefaultSet && _apSsid.length() > 0) {
+      model.wifi.ap_ssid = _apSsid.c_str();
+      model.saveTopic("wifi");
+      LOG_INFO_F("[INIT] AP SSID default from setApSsid() applied: %s", _apSsid.c_str());
+    } else if (modelApSsid && modelApSsid[0] != '\0') {
+      _apSsid = modelApSsid;
+      LOG_INFO_F("[INIT] AP SSID loaded from model: %s", _apSsid.c_str());
+    }
+
     const char *modelMdns = model.mdns.mdns_domain;
-    if (!_mdnsHostUserSet && modelMdns && modelMdns[0] != '\0') {
+    // If prefs were never set, the model keeps its compiled default.
+    const bool modelIsDefault = (modelMdns && (std::strcmp(modelMdns, "esp32-device") == 0));
+    const bool modelHasCustomMdns = (modelMdns && modelMdns[0] != '\0' && !modelIsDefault);
+
+    if (modelHasCustomMdns) {
+      // User has configured mDNS via UI/prefs -> always honor that.
       _mdnsHost = modelMdns;
-      LOG_INFO_F("[INIT] mDNS Hostname aus Model übernommen: %s", _mdnsHost.c_str());
-    } else if (_mdnsHostUserSet) {
+      LOG_INFO_F("[INIT] mDNS hostname loaded from prefs/model: %s", _mdnsHost.c_str());
+    } else if (_mdnsHostDefaultSet && _mdnsHost.length() > 0) {
+      // No custom prefs value yet -> use provided default and persist it once.
       std::strncpy(model.mdns.mdns_domain, _mdnsHost.c_str(), MDNSSettings::MDNS_LEN - 1);
       model.mdns.mdns_domain[MDNSSettings::MDNS_LEN - 1] = '\0';
       model.saveTopic("mdns");
-      LOG_INFO_F("[INIT] mDNS Hostname aus setMdnsHost() übernommen und ins Model gespeichert: %s", _mdnsHost.c_str());
+      LOG_INFO_F("[INIT] mDNS hostname default from setMdnsHost() applied: %s", _mdnsHost.c_str());
+    } else if (modelMdns && modelMdns[0] != '\0') {
+      // Fall back to whatever the model currently holds (incl. its default).
+      _mdnsHost = modelMdns;
+      LOG_INFO_F("[INIT] mDNS hostname loaded from model: %s", _mdnsHost.c_str());
     }
-    LOG_INFO_F("[INIT] Credentials geladen - SSID: '%s'", model.wifi.ssid.get().c_str());
-    LOG_INFO_F("[INIT] Admin-Passwort: %s", model.admin.pass);
+    LOG_INFO_F("[INIT] Credentials loaded - SSID: '%s'", model.wifi.ssid.get().c_str());
+    LOG_INFO_F("[INIT] Admin UI password: %s", model.admin.pass);
 
     // ===== STEP 3: Try STA Mode Connection =====
-    LOG_INFO("[INIT] SCHRITT 3: Versuche STA-Modus (WLAN-Verbindung)...");
+    LOG_INFO("[INIT] STEP 3: Try STA mode (WiFi connect)...");
     _staMode = true;  // Mark as STA before attempting connection
     
     if (_connectToWiFi()) {
-      LOG_INFO("[INIT] ✓ WiFi-Verbindung erfolgreich!");
+      LOG_INFO("[INIT] WiFi connected.");
       _startMdns();
-      timeSync.begin("CET-1CEST,M3.5.0/2,M10.5.0/3");
+      _applyTimeFromModel(true);
       ota.onStatus([this](const String &s) { if (_onStatus) _onStatus(s); });
       ota.setHostname(_mdnsHost);
       ota.setPrefsEnabled(false);
@@ -168,22 +202,22 @@ public:
       // Configure OTA from Model (password + window seconds)
       _applyOtaFromModel();
       ota.beginIfNeeded(_mdnsHost);
-      LOG_INFO("[INIT] OTA Update aktiviert");
+      LOG_INFO("[INIT] OTA enabled");
     } else {
-      LOG_WARN("[INIT] ✗ WiFi-Verbindung fehlgeschlagen! Starte AP-Modus...");
+      LOG_WARN("[INIT] WiFi connect failed; starting AP mode...");
       _staMode = false;
       _startAccessPoint();
     }
 
     // ===== STEP 4: Register Web Routes =====
-    LOG_INFO("[INIT] SCHRITT 4: Web-Routen registrieren...");
+    LOG_INFO("[INIT] STEP 4: Register web routes...");
     _registerRoutes();
     
     // ===== STEP 5: Setup WiFi Callbacks =====
-    LOG_INFO("[INIT] SCHRITT 5: WiFi-Callbacks konfigurieren...");
+    LOG_INFO("[INIT] STEP 5: Configure callbacks...");
     model.onWifiUpdate = [this]() {
-      LOG_WARN("[WiFi-UPDATE] Neue Credentials empfangen via WebSocket!");
-      LOG_WARN("[WiFi-UPDATE] Starte Restart in 2 Sekunden...");
+      LOG_WARN("[WiFi] Credentials updated via WebSocket");
+      LOG_WARN("[WiFi] Scheduling restart in 2 seconds...");
       this->_pendingRestart = true;
       this->_restartTime = millis() + 2000;
     };
@@ -212,32 +246,69 @@ public:
       this->_restartTime = millis() + 1000;
     };
 
+    model.onMdnsUpdate = [this]() {
+      // mDNS/hostname is (re)initialized during boot; applying changes live is unreliable.
+      // Schedule a short delayed restart so the new .local name is announced cleanly.
+      const char* newHost = model.mdns.mdns_domain;
+      LOG_WARN_F("[mDNS] Hostname changed; scheduling restart (new: %s)", newHost ? newHost : "<null>");
+      if (_onStatus) {
+        String msg = "mDNS changed — restart in 2s";
+        if (newHost && newHost[0] != '\0') msg += String(" (new: ") + newHost + ")";
+        _onStatus(msg);
+      }
+      this->_pendingRestart = true;
+      this->_restartTime = millis() + 2000;
+    };
+
+    model.onAdminUpdate = [this]() {
+      // Allow changing heap publish interval at runtime
+      int ms = model.admin.heap_send_time_ms.get();
+      if (ms < 200) ms = 200;
+      if (ms > 600000) ms = 600000;
+      _heapLogger.setIntervalMs((uint32_t)ms);
+      LOG_INFO_F("[HEAP] heap_send_time_ms updated -> %d ms", ms);
+    };
+
+    model.onTimeUpdate = [this]() {
+      _applyTimeFromModel(true);
+    };
+
+    model.onTimeSyncNow = [this]() {
+      _applyTimeFromModel(true);
+    };
+
+    // Configure the heap graph to use epoch millis when time is synced.
+    model.admin.heap.get().setTimeProvider(&_timeNowMsCb, &_timeIsSyncedCb, this);
+
+    // Apply current heap interval from prefs/model immediately
+    model.onAdminUpdate();
+
     model.onWifiScanRequest = [this]() {
-      LOG_INFO("[WiFi-SCAN] Scan request via WebSocket");
+      LOG_INFO("[WiFi] Scan requested via WebSocket");
       // Only meaningful in AP mode; but harmless in STA mode.
       int n = WiFi.scanComplete();
       if (n == -1) {
-        LOG_DEBUG("[WiFi-SCAN] Scan already running");
+        LOG_DEBUG("[WiFi] Scan already running");
         return;
       }
       WiFi.scanDelete();
       WiFi.scanNetworks(true);
     };
     
-    // ===== STEP 6: WiFi Scan nur im AP-Modus =====
+    // ===== STEP 6: WiFi scan only in AP mode =====
     if (_staMode) {
-      LOG_INFO("[INIT] SCHRITT 6: STA-Modus aktiv -> überspringe WiFi-Scan");
-      model.wifi.available_networks.get().clear();  // kein Scan notwendig
+      LOG_INFO("[INIT] STEP 6: STA mode active -> skip WiFi scan");
+      model.wifi.available_networks.get().clear();
     } else {
-      LOG_INFO("[INIT] SCHRITT 6: Starte asynchronen WiFi-Scan (AP-Modus)...");
+      LOG_INFO("[INIT] STEP 6: Start async WiFi scan (AP mode)...");
       WiFi.scanNetworks(true);
     }
     
     LOG_INFO("========== WiFi Provisioner READY ==========");
     if (_staMode) {
-      LOG_INFO_F("[INIT] Status: STA-Modus aktiv, erreichbar unter: %s.local", _mdnsHost.c_str());
+      LOG_INFO_F("[INIT] STA mode active; reachable at: %s.local", _mdnsHost.c_str());
     } else {
-      LOG_INFO_F("[INIT] Status: AP-Modus aktiv, SSID: '%s'", _apSsid.c_str());
+      LOG_INFO_F("[INIT] AP mode active; SSID: '%s'", _apSsid.c_str());
     }
   }
 
@@ -253,14 +324,14 @@ public:
   {
     // ===== CHECK 1: Pending Restart =====
     if (_pendingRestart && millis() >= _restartTime) {
-      LOG_WARN("[LOOP] ⚠ PENDING RESTART AKTIVIERT!");
-      LOG_WARN("[LOOP] Warte auf Preferences flush...");
+      LOG_WARN("[LOOP] Pending restart triggered");
+      LOG_WARN("[LOOP] Waiting for Preferences flush...");
       delay(RESTART_DELAY_MS);
-      LOG_WARN("[LOOP] Starte ESP neu...");
+      LOG_WARN("[LOOP] Restarting ESP...");
       ESP.restart();
     }
     
-    // ===== CHECK 2: DNS Loop (nur im AP-Modus) =====
+    // ===== CHECK 2: DNS loop (AP mode only) =====
     handleDnsLoop();
 
     // ===== CHECK 3: OTA Handle =====
@@ -277,16 +348,16 @@ public:
     // ===== CHECK 4: WiFi Scan Results =====
     int n = WiFi.scanComplete();
     if (n >= 0) {
-      LOG_DEBUG_F("[LOOP] WiFi-Scan abgeschlossen: %d Netzwerke gefunden", n);
+      LOG_DEBUG_F("[LOOP] WiFi scan completed: %d networks found", n);
       model.wifi.available_networks.get().clear();
       for (int i = 0; i < n && i < WifiSettings::MAX_NETWORKS; ++i) {
         StringBuffer<WifiSettings::SSID_LEN> ssid;
         ssid.set(WiFi.SSID(i).c_str());
         model.wifi.available_networks.get().add(ssid);
-        LOG_TRACE_F("[LOOP] Netzwerk %d: %s (RSSI: %d dBm)", i+1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
+        LOG_TRACE_F("[LOOP] Network %d: %s (RSSI: %d dBm)", i+1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
       }
       WiFi.scanDelete();
-      LOG_DEBUG("[LOOP] Broadcast: Netzwerkliste aktualisiert via WebSocket");
+      LOG_DEBUG("[LOOP] Broadcasting updated network list via WebSocket");
       model.broadcastAll();
     }
 
@@ -294,23 +365,34 @@ public:
     if (_heapLogger.ready()) {
       uint32_t freeHeap = ESP.getFreeHeap();
       LOG_DEBUG_F("[HEAP] Pushing heap data: %u bytes", freeHeap);
-      model.admin.admin_log.get().push((float)freeHeap);
+      model.admin.heap.get().push((float)freeHeap);
+    }
+
+    // ===== CHECK 6: Time status broadcast (1Hz) =====
+    if (_timePusher.ready()) {
+      const bool ok = timeSync.isValid();
+      String now = timeSync.nowLocalString();
+      model.time.synced.set(ok);
+      model.time.now.set(now.c_str());
+      model.broadcastTopic("time");
     }
 
     yield();
   }
 
 private:
-  // ============= CONFIGURATION CONSTANTS (für Tests anpassbar) =============
-  static const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;  // 15s Timeout für WiFi Verbindung
-  static const unsigned long RESTART_DELAY_MS = 500;            // Verzögerung vor Restart
+  // ============= CONFIGURATION CONSTANTS (tweakable for tests) =============
+  static const unsigned long WIFI_CONNECT_TIMEOUT_MS = 15000;  // 15s timeout for WiFi connection
+  static const unsigned long RESTART_DELAY_MS = 500;           // delay before restart
   
   // ============= MEMBER VARIABLES =============
   String _apSsid, _apPass, _mdnsHost, _fallbackFile, _infoMessage;
-  bool _mdnsHostUserSet = false;
+  bool _apSsidDefaultSet = false;
+  bool _mdnsHostDefaultSet = false;
   bool _requireAdmin = true;
   bool _staMode;
   bool _littleFsAvailable = false;
+  bool _hasIndexHtml = false;
   StatusCallback _onStatus = nullptr;
   uint32_t lastOta = 0;
   uint32_t lastCleanup = 0;
@@ -318,7 +400,30 @@ private:
   unsigned long _restartTime = 0;
   bool _lowLatencyWiFi = true;
   Periodic _heapLogger = Periodic(5000);
+  Periodic _timePusher = Periodic(1000);
   Periodic _otaRemainingPusher = Periodic(1000);
+    static uint64_t _timeNowMsCb(void* ctx) {
+      if (!ctx) return (uint64_t)millis();
+      auto* self = static_cast<WiFiProvisioner*>(ctx);
+      return (uint64_t)self->timeSync.nowEpochMillis();
+    }
+
+    static bool _timeIsSyncedCb(void* ctx) {
+      if (!ctx) return false;
+      auto* self = static_cast<WiFiProvisioner*>(ctx);
+      return self->timeSync.isValid();
+    }
+
+    void _applyTimeFromModel(bool force)
+    {
+      (void)force;
+      if (!_staMode) return;
+      if (WiFi.status() != WL_CONNECTED) return;
+
+      const char* tz = model.time.tz.get().c_str();
+      if (!tz || tz[0] == '\0') tz = "CET-1CEST,M3.5.0/2,M10.5.0/3";
+      timeSync.begin(tz);
+    }
   int _lastOtaRemaining = -9999;
 
   ModelBase* _userModel = nullptr;
@@ -344,20 +449,20 @@ private:
     const char* ssid = model.wifi.ssid;
     const char* pass = model.wifi.pass;
 
-    LOG_INFO_F("[STA] Verbindungsversuch zu WiFi-Netzwerk: '%s'", ssid ? ssid : "null");
+    LOG_INFO_F("[STA] Connecting to WiFi network: '%s'", ssid ? ssid : "<null>");
     
-    // Prüfe ob Credentials vorhanden sind
+    // Check for configured credentials
     if (!ssid || ssid[0] == '\0')
     {
-      LOG_WARN("[STA] ✗ Keine WLAN-Zugangsdaten gespeichert!");
+      LOG_WARN("[STA] No WiFi credentials saved");
       if (_onStatus)
-        _onStatus("Keine WLAN-Zugangsdaten gespeichert.");
+        _onStatus("No WiFi credentials saved.");
       return false;
     }
 
-    // Setze WiFi in STA-Modus
+    // Set WiFi to STA mode
     WiFi.mode(WIFI_STA);
-    LOG_DEBUG_F("[STA] WiFi-Modus: STA, SSID: '%s'", ssid);
+    LOG_DEBUG_F("[STA] WiFi mode: STA, SSID: '%s'", ssid);
 
     // Set hostname early (before DHCP) for consistent mDNS/DHCP hostname behavior.
     WiFi.setHostname(_mdnsHost.c_str());
@@ -367,14 +472,14 @@ private:
       WiFi.setSleep(false);
     }
     
-    // Starte Verbindung
+    // Start connecting
     WiFi.begin(ssid, pass);
     if (_onStatus)
-      _onStatus(String("Verbinde mit WLAN: ") + ssid);
+      _onStatus(String("Connecting to WiFi: ") + ssid);
     
-    LOG_INFO_F("[STA] WiFi.begin() aufgerufen, warte auf Verbindung...");
+    LOG_INFO("[STA] WiFi.begin() called; waiting for connection...");
     
-    // Warte auf Verbindung mit Timeout
+    // Wait for connection with timeout
     unsigned long start = millis();
     int attempt = 0;
     while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT_MS)
@@ -383,60 +488,60 @@ private:
       delay(100);
       attempt++;
       
-      // Fortschrittsanzeige alle 2 Sekunden
+      // Progress log every ~2 seconds
       if (attempt % 20 == 0) {
-        LOG_TRACE_F("[STA] Verbindungsversuch läuft... (%ld ms / %lu ms)", 
+        LOG_TRACE_F("[STA] Connecting... (%ld ms / %lu ms)", 
                     millis() - start, WIFI_CONNECT_TIMEOUT_MS);
       } else {
         LOG_TRACE(".");
       }
     }
 
-    // Ergebnis prüfen
+    // Check result
     if (WiFi.status() == WL_CONNECTED)
     {
       String ip = WiFi.localIP().toString();
-      LOG_INFO_F("[STA] ✓ ERFOLGREICH VERBUNDEN! IP: %s", ip.c_str());
-      LOG_DEBUG_F("[STA] BSSID: %s, RSSI: %d dBm (Signalstärke)", 
+      LOG_INFO_F("[STA] Connected. IP: %s", ip.c_str());
+      LOG_DEBUG_F("[STA] BSSID: %s, RSSI: %d dBm", 
                   WiFi.BSSIDstr().c_str(), WiFi.RSSI());
       
       if (_onStatus)
-        _onStatus("WLAN verbunden:\n" + ip);
+        _onStatus("WiFi connected:\n" + ip);
       
       return true;
     }
     else
     {
-      LOG_WARN("[STA] ✗ VERBINDUNG FEHLGESCHLAGEN nach 15 Sekunden!");
+      LOG_WARN("[STA] Connection failed (timeout)");
       LOG_WARN_F("[STA] WiFi-Status: %d (Expected: 3=WL_CONNECTED)", WiFi.status());
       if (_onStatus)
-        _onStatus("WLAN-Verbindung fehlgeschlagen.");
+        _onStatus("WiFi connection failed.");
       return false;
     }
   }
 
   void _startMdns()
   {
-    LOG_INFO("[mDNS] Starte mDNS Service...");
+    LOG_INFO("[mDNS] Starting mDNS...");
     if (MDNS.begin(_mdnsHost.c_str()))
     {
       MDNS.addService("arduino", "tcp", 3232);
-      String msg = "Erreichbar unter:\n" + _mdnsHost + ".local";
-      LOG_INFO_F("[mDNS] ✓ mDNS erfolgreich gestartet: %s.local", _mdnsHost.c_str());
+      String msg = "Reachable at:\n" + _mdnsHost + ".local";
+      LOG_INFO_F("[mDNS] mDNS started: %s.local", _mdnsHost.c_str());
       if (_onStatus)
         _onStatus(msg);
     }
     else
     {
-      LOG_ERROR("[mDNS] ✗ mDNS konnte nicht gestartet werden!");
+      LOG_ERROR("[mDNS] Failed to start mDNS");
       if (_onStatus)
-        _onStatus("Fehler: mDNS konnte nicht gestartet werden.");
+        _onStatus("Error: mDNS could not be started.");
     }
   }
 
   void _startAccessPoint()
   {
-    LOG_WARN("[AP] Starte Access Point Modus!");
+    LOG_WARN("[AP] Starting access point mode");
     LOG_INFO_F("[AP] SSID: '%s'", _apSsid.c_str());
     
     WiFi.mode(WIFI_AP);
@@ -446,11 +551,11 @@ private:
     dns.start(53, "*", IPAddress(8, 8, 8, 8));
 
     if (_onStatus)
-      _onStatus("Starte Access Point: " + _apSsid);
+      _onStatus("Starting access point: " + _apSsid);
     
-    LOG_WARN_F("[AP] ✓ Access Point aktiv!");
-    LOG_INFO_F("[AP] Verbinde dich mit SSID '%s' um Credentials zu übertragen", _apSsid.c_str());
-    LOG_INFO("[AP] Rufe 192.168.4.1 im Browser auf");
+    LOG_WARN("[AP] Access point active");
+    LOG_INFO_F("[AP] Connect to SSID '%s' to provision credentials", _apSsid.c_str());
+    LOG_INFO("[AP] Open http://192.168.4.1 in your browser");
 
     // No /scan or /save endpoints: WiFi provisioning happens via WebSocket + model updates.
   }
@@ -459,20 +564,20 @@ private:
   {
     if (_staMode)
     {
-      LOG_DEBUG("[ROUTES] Registriere STA-Modus Routes (Admin Seite)");
+      LOG_DEBUG("[ROUTES] Registering STA-mode routes");
 
       server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request)
                 {
         if (_requireAdmin && !_requireBasicAuthOrChallenge(request)) return;
 
         // Allow a custom LittleFS landing page.
-        if (_littleFsAvailable && LittleFS.exists("/index.html")) {
+        if (_hasIndexHtml) {
           request->send(LittleFS, "/index.html", "text/html");
           return;
         }
 
-        // Default: serve the embedded admin page directly (no redirect).
-        _serveFileWithFallback(request, "/admin.html");
+        // Do NOT serve admin UI on '/'.
+        request->redirect("/wifi");
       });
     }
     else
@@ -491,20 +596,12 @@ private:
           { _serveFileWithFallback(request, "/model.html"); });
 
     // Admin UI & WiFi page
-    generateDefaultPage(model, "/admin", "ESP32 Admin", true, _requireAdmin);
+    generateDefaultPage(model, "/admin", "ESP32 Admin", true, _requireAdmin, true);
     server.on("/wifi", HTTP_GET, [this](AsyncWebServerRequest *request)
               {
       if (_requireAdmin && !_requireBasicAuthOrChallenge(request)) return;
       _serveFileWithFallback(request, "/wifi.html");
     });
-
-    // Optional: User model UI (redirects to /model.html with correct ws)
-    if (_userModel) {
-      generateDefaultPage(*_userModel, "/model2", "ESP32 Model2", false, _requireAdmin);
-    } else {
-      server.on("/model2", HTTP_GET, [](AsyncWebServerRequest *request) { request->redirect("/admin"); });
-      server.on("/model2.html", HTTP_GET, [](AsyncWebServerRequest *request) { request->redirect("/admin"); });
-    }
 
     // Attach Model WebSocket
     LOG_DEBUG("[ROUTES] Registriere Model WebSocket");
@@ -519,11 +616,11 @@ private:
     if (_staMode)
     {
       // In STA mode we still want to serve embedded static assets (css/js/fonts)
-      // and other known files. Only unknown routes should redirect to /admin.
+      // and other known files. Unknown routes should NOT redirect to /admin.
       server.onNotFound([this](AsyncWebServerRequest *request)
                         {
         if (_serveExactFileIfExists(request)) return;
-        request->redirect("/admin"); });
+        request->send(404, "text/plain", "Not Found"); });
     }
     else
     {
@@ -532,9 +629,9 @@ private:
     }
 
     // Start HTTP Server
-    LOG_INFO("[ROUTES] Starte HTTP Webserver auf Port 80");
+    LOG_INFO("[ROUTES] Starting HTTP server on port 80");
     server.begin();
-    LOG_INFO("[ROUTES] ✓ Alle Routes registriert");
+    LOG_INFO("[ROUTES] All routes registered");
   }
 
   void _applyOtaFromModel()
@@ -568,21 +665,21 @@ private:
   // Route handlers (extracted for clarity)
   void _handleScan(AsyncWebServerRequest *request)
   {
-    LOG_INFO("[SCAN] WiFi-Scan Anfrage erhalten");
+    LOG_INFO("[SCAN] WiFi scan request received");
     int n = WiFi.scanComplete();
-    LOG_DEBUG_F("[SCAN] scanComplete() Status: %d (-2=nicht gestartet, -1=läuft noch, >=0=fertig)", n);
+    LOG_DEBUG_F("[SCAN] scanComplete() status: %d (-2=not started, -1=running, >=0=done)", n);
     
     if (n == -2) {
-      LOG_INFO("[SCAN] Starte neuen Scan...");
+      LOG_INFO("[SCAN] Starting new scan...");
       WiFi.scanNetworks(true);
     }
     if (n == -1) {
-      LOG_DEBUG("[SCAN] Scan läuft noch... Sende leeres Array");
+      LOG_DEBUG("[SCAN] Scan still running... sending empty list");
       request->send(200, "application/json", "[]");
       return;
     }
 
-    LOG_INFO_F("[SCAN] ✓ Scan fertig: %d Netzwerke gefunden", n);
+    LOG_INFO_F("[SCAN] Scan done: %d networks found", n);
     
     // Update model with available networks
     model.wifi.available_networks.get().clear();
@@ -590,14 +687,14 @@ private:
       StringBuffer<WifiSettings::SSID_LEN> ssid;
       ssid.set(WiFi.SSID(i).c_str());
       model.wifi.available_networks.get().add(ssid);
-      LOG_TRACE_F("[SCAN] Netzwerk %d: %s (RSSI: %d dBm)", i+1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
+      LOG_TRACE_F("[SCAN] Network %d: %s (RSSI: %d dBm)", i+1, WiFi.SSID(i).c_str(), WiFi.RSSI(i));
     }
     
     // Trigger WebSocket update
-    LOG_DEBUG("[SCAN] Broadcast Netzwerkliste via WebSocket");
+    LOG_DEBUG("[SCAN] Broadcasting network list via WebSocket");
     model.broadcastAll();
 
-    // Sende JSON Response
+    // Send JSON response
     DynamicJsonDocument doc(1024);
     JsonArray arr = doc.to<JsonArray>();
     for (int i = 0; i < n; ++i) {
@@ -614,73 +711,45 @@ private:
 
   void _handleSave(AsyncWebServerRequest *request, uint8_t *data, size_t len)
   {
-    LOG_INFO("[AP-SAVE] Neue Credentials empfangen!");
+    LOG_INFO("[AP-SAVE] New credentials received");
     
     DynamicJsonDocument doc(256);
     auto err = deserializeJson(doc, (const char*)data, len);
     
     if (err) {
-      LOG_ERROR("[AP-SAVE] ✗ JSON Parsing Fehler!");
+      LOG_ERROR("[AP-SAVE] JSON parse error");
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_json\"}");
       return;
     }
     
     if (!doc.containsKey("ssid") || !doc.containsKey("pass")) {
-      LOG_ERROR("[AP-SAVE] ✗ Fehlende Felder (ssid oder pass)");
+      LOG_ERROR("[AP-SAVE] Missing fields (ssid or pass)");
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"missing_fields\"}");
       return;
     }
     
-    // Extrahiere neue Credentials
+    // Extract credentials
     const char* newSsid = doc["ssid"].as<const char*>();
     const char* newPass = doc["pass"].as<const char*>();
     
-    LOG_WARN_F("[AP-SAVE] Neue SSID erhalten: '%s'", newSsid);
-    LOG_WARN_F("[AP-SAVE] Neue Password Länge: %d", strlen(newPass));
+    LOG_WARN_F("[AP-SAVE] SSID: '%s'", newSsid);
+    LOG_WARN_F("[AP-SAVE] Password length: %d", strlen(newPass));
     
-    // Speichere in Model (wird automatisch in Preferences gespeichert)
+    // Save into model (will be persisted via Preferences)
     model.wifi.ssid = newSsid;
     model.wifi.pass = newPass;
     
-    LOG_INFO("[AP-SAVE] Credentials in Preferences gespeichert!");
-    LOG_WARN("[AP-SAVE] ⚠ Sende OK Response und starte Restart in 1 Sekunde...");
+    LOG_INFO("[AP-SAVE] Credentials saved");
+    LOG_WARN("[AP-SAVE] Sending OK response; restarting in 1 second...");
     
-    // Sende Response
+    // Send response
     request->send(200, "application/json", "{\"ok\":true}\n");
     
-    // Warte und restart
+    // Delay and restart
     delay(RESTART_DELAY_MS);
-    LOG_WARN("[AP-SAVE] >>> RESTART JETZT!");
+    LOG_WARN("[AP-SAVE] Restarting now");
     ESP.restart();
   }
-
-  // void _handleSet(AsyncWebServerRequest *request, uint8_t *data, size_t len)
-  // {
-  //   if (!_isAdminAuthorized(request)) {
-  //     request->send(401, "application/json", "{\"error\":\"unauthorized\"}");
-  //     return;
-  //   }
-
-  //   DynamicJsonDocument doc(512);
-  //   auto err = deserializeJson(doc, (const char*)data, len);
-  //   if (err) {
-  //     request->send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_json\"}");
-  //     return;
-  //   }
-
-  //   // expected: { "ns": "namespace", "key": "key", "value": "..." }
-  //   if (!doc.containsKey("ns") || !doc.containsKey("key") || !doc.containsKey("value")) {
-  //     request->send(400, "application/json", "{\"ok\":false,\"error\":\"ns_key_value_required\"}");
-  //     return;
-  //   }
-  //   String ns = doc["ns"].as<String>();
-  //   String key = doc["key"].as<String>();
-  //   String value = doc["value"].as<String>();
-  //   model.setPref(ns.c_str(), key.c_str(), value);
-  //   request->send(200, "application/json", "{\"ok\":true}\n");
-  // }
-
-  // void _handleGet(AsyncWebServerRequest *request)
   // {
   //   // protect endpoint
   //   if (!_isAdminAuthorized(request)) {
@@ -722,7 +791,7 @@ private:
     }
     else
     {
-      Serial.printf("[WARN] Kein Match für %s, fallback: %s\n", uri.c_str(), fallbackPath.c_str());
+      Serial.printf("[WARN] No match for %s, fallback: %s\n", uri.c_str(), fallbackPath.c_str());
       request->send(404, "text/plain", "Not Found");
     }
   }

@@ -8,35 +8,109 @@
   <link href="/css/materialize.min.css" rel="stylesheet">
   <link href="/css/material-icons.css" rel="stylesheet">
   <style>
-    body { padding: 2rem; background: #f7f9fc; }
+    :root {
+      --bg: #f7f9fc;
+      --card-radius: 14px;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: rgba(15, 23, 42, 0.08);
+    }
+
+    body { background: var(--bg); color: var(--text); }
+
+    .page-wrap {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 1.25rem;
+    }
+
+    h4 { margin: 0 0 0.75rem 0; font-weight: 700; letter-spacing: -0.01em; }
+
+    .topbar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
     .card-grid { display: flex; flex-direction: column; gap: 1rem; }
-    .setting-row { display: flex; align-items: center; margin-bottom: 0.75rem; gap: 0.75rem; }
-    .setting-row label { min-width: 120px; font-weight: 600; }
-    .setting-row .value-list { margin: 0; padding-left: 1rem; }
-    .chip.connected { background-color: #e8f5e9; color: #2e7d32; }
-    .chip.disconnected { background-color: #ffebee; color: #c62828; }
+
+    .card {
+      border-radius: var(--card-radius);
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+      border: 1px solid var(--border);
+    }
+
+    .card .card-title {
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .setting-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.25rem 0;
+    }
+
+    .setting-row label {
+      min-width: 180px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .setting-row input.browser-default {
+      flex: 1;
+      width: 100%;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.55rem 0.75rem;
+      height: auto;
+    }
+
+    .setting-row .value-list {
+      margin: 0;
+      padding-left: 1.1rem;
+      color: var(--text);
+    }
+
+    .chip.connected { background-color: #e8f5e9; color: #2e7d32; border: 1px solid rgba(46,125,50,0.15); }
+    .chip.disconnected { background-color: #ffebee; color: #c62828; border: 1px solid rgba(198,40,40,0.15); }
+
+    /* Mobile: stack key/value vertically to save width */
+    @media (max-width: 600px) {
+      .page-wrap { padding: 0.9rem; }
+      h4 { font-size: 1.6rem; }
+      .setting-row { flex-direction: column; align-items: stretch; }
+      .setting-row label { min-width: auto; }
+    }
   </style>
 </head>
 
 <body>
-  <h4 id="pageTitle">ESP32 Model</h4>
+  <div class="page-wrap">
+    <h4 id="pageTitle">ESP32 Model</h4>
 
-  <div id="mainContent" style="display:block;">
-    <div style="margin-bottom:1rem; display:flex; gap:0.5rem; align-items:center; flex-wrap: wrap;">
-      <span id="wsBadge" class="chip disconnected">WS: getrennt</span>
-    </div>
+    <div id="mainContent" style="display:block;">
+      <div class="topbar">
+        <span id="wsBadge" class="chip disconnected">WS: getrennt</span>
+      </div>
 
     <div id="cardsContainer" class="card-grid"></div>
     <div id="graphsContainer" class="card-grid" style="margin-top:1rem;"></div>
 
     <div id="wsDebugCard" class="card" style="margin-top:1rem; display:none;">
       <div class="card-content">
-        <span class="card-title">🐛 WebSocket Debug</span>
+        <span class="card-title">WebSocket Debug</span>
         <pre id="wsDebugLog" style="background:#263238; color:#aed581; padding:1rem; border-radius:4px; max-height:400px; overflow-y:auto; font-size:0.85rem; margin:0;"></pre>
       </div>
       <div class="card-action">
         <a class="btn-small red" onclick="document.getElementById('wsDebugLog').textContent = ''">Clear</a>
       </div>
+    </div>
     </div>
   </div>
 

@@ -68,7 +68,8 @@ struct PointRingBuffer {
   }
 
   uint64_t currentX() const {
-    if (now_ms) return now_ms(time_ctx);
+    // Only use an external time source when it is actually synced/valid.
+    if (now_ms && timeSynced()) return now_ms(time_ctx);
     return (uint64_t)millis();
   }
 

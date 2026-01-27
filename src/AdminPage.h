@@ -97,7 +97,7 @@ static void registerAdminRoutes(AsyncWebServer &server, bool requireAdmin, Model
 
   static const char *default_ui_config = R"json({
     "buttons": [
-      { "id": "reset", "label": "Zurücksetzen", "method": "POST", "path": "/reset", "confirm": true },
+      { "id": "reset", "label": "Reset", "method": "POST", "path": "/reset", "confirm": true },
       { "id": "ota_extend", "label": "OTA +10min", "method": "POST", "path": "/ota/extend", "confirm": false }
     ]
   })json";

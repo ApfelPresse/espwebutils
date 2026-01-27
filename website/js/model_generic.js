@@ -8,10 +8,48 @@
   let ws = null;
   let wsDebugEnabled = false;
 
+  const dirtyFields = new Set(); // Set of "topic\u0000field"
+  let renderScheduled = false;
+
   const graphCharts = {}; // { graph_name: { chart, datasets: { label: dataset }, maxCount } }
 
   const byId = (id) => document.getElementById(id);
   const formatTopic = (t) => String(t || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const dirtyKey = (topic, field) => `${topic}\u0000${field}`;
+
+  function escapeAttrValue(value) {
+    return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  function markDirty(topic, field, isDirty) {
+    const key = dirtyKey(topic, field);
+    if (isDirty) dirtyFields.add(key);
+    else dirtyFields.delete(key);
+  }
+
+  function isDirty(topic, field) {
+    return dirtyFields.has(dirtyKey(topic, field));
+  }
+
+  function clearDirtyForTopic(topic) {
+    Array.from(dirtyFields).forEach((k) => {
+      if (k.startsWith(`${topic}\u0000`)) dirtyFields.delete(k);
+    });
+  }
+
+  function scheduleRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+
+    const runner = () => {
+      renderScheduled = false;
+      renderTopics();
+    };
+
+    if (typeof window.requestAnimationFrame === 'function') window.requestAnimationFrame(runner);
+    else setTimeout(runner, 16);
+  }
 
   function toast(html, classes) {
     try {
@@ -40,111 +78,278 @@
     return { kind: 'string', value: raw == null ? '' : String(raw), raw };
   }
 
+  function createCard(topic) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.topic = topic;
+
+    const content = document.createElement('div');
+    content.className = 'card-content';
+    const title = document.createElement('span');
+    title.className = 'card-title';
+    title.textContent = formatTopic(topic);
+    content.appendChild(title);
+
+    const empty = document.createElement('p');
+    empty.className = 'topic-empty';
+    empty.style.display = 'none';
+    empty.textContent = 'Keine Daten verfügbar';
+    content.appendChild(empty);
+
+    const actions = document.createElement('div');
+    actions.className = 'card-action';
+    const saveBtn = document.createElement('a');
+    saveBtn.className = 'btn blue';
+    saveBtn.textContent = 'Speichern';
+    saveBtn.onclick = () => submitTopicUpdate(topic, card);
+    actions.appendChild(saveBtn);
+
+    card.appendChild(content);
+    card.appendChild(actions);
+    return card;
+  }
+
+  function ensureRow(cardContentEl, topic, key) {
+    const selectorKey = escapeAttrValue(key);
+    let row = cardContentEl.querySelector(`[data-row="${selectorKey}"]`);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'setting-row';
+      row.dataset.row = key;
+      cardContentEl.appendChild(row);
+    }
+    return row;
+  }
+
+  function updateRow(row, topic, key, info) {
+    // Ensure row matches desired kind; if kind changes, rebuild this row.
+    const isButtonKey = String(key).toLowerCase().includes('button');
+    const desiredKind = info.kind === 'button' || isButtonKey ? 'button' : info.kind;
+    const currentKind = row.dataset.rowKind;
+    const mustRebuild = currentKind !== desiredKind;
+
+    if (mustRebuild) {
+      row.innerHTML = '';
+      row.dataset.rowKind = desiredKind;
+    }
+
+    if (desiredKind === 'button') {
+      let btn = row.querySelector('a.btn');
+      if (!btn) {
+        btn = document.createElement('a');
+        btn.className = 'btn waves-effect waves-light orange';
+        btn.style.margin = '0.5rem 0';
+        row.appendChild(btn);
+      }
+      btn.textContent = '▶ ' + String(key).replace(/_/g, ' ');
+      btn.onclick = () => triggerButton(topic, key);
+      return;
+    }
+
+    if (desiredKind === 'list') {
+      let label = row.querySelector('label');
+      if (!label) {
+        label = document.createElement('label');
+        row.appendChild(label);
+      }
+      label.textContent = key;
+
+      let ul = row.querySelector('ul.value-list');
+      if (!ul) {
+        ul = document.createElement('ul');
+        ul.className = 'value-list';
+        row.appendChild(ul);
+      }
+
+      ul.innerHTML = '';
+      (info.value || []).forEach((item) => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        ul.appendChild(li);
+      });
+      return;
+    }
+
+    if (desiredKind === 'bool') {
+      let label = row.querySelector('label');
+      if (!label) {
+        label = document.createElement('label');
+        row.appendChild(label);
+      }
+      label.textContent = key;
+
+      let input = row.querySelector('input[type="checkbox"]');
+      if (!input) {
+        const toggle = document.createElement('label');
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.dataset.field = key;
+        input.dataset.kind = 'bool';
+        input.dataset.topic = topic;
+        input.addEventListener('change', () => markDirty(topic, key, true));
+        const span = document.createElement('span');
+        toggle.appendChild(input);
+        toggle.appendChild(span);
+        row.appendChild(toggle);
+      }
+
+      if (!isDirty(topic, key)) {
+        input.checked = !!info.value;
+      }
+      return;
+    }
+
+    // string/number
+    let label = row.querySelector('label');
+    if (!label) {
+      label = document.createElement('label');
+      row.appendChild(label);
+    }
+    label.textContent = key;
+
+    let input = row.querySelector('input');
+    if (!input) {
+      input = document.createElement('input');
+      input.className = 'browser-default';
+      input.dataset.field = key;
+      input.dataset.kind = desiredKind;
+      input.dataset.topic = topic;
+      input.addEventListener('input', () => markDirty(topic, key, true));
+      row.appendChild(input);
+    }
+
+    const newType = desiredKind === 'number' ? 'number' : 'text';
+    if (input.type !== newType) input.type = newType;
+
+    // Never overwrite while the user is editing that field.
+    if (!isDirty(topic, key)) {
+      const serverValue = info.value;
+      if (input.value !== serverValue) input.value = serverValue;
+    }
+  }
+
+  function updateCard(topic, card, data) {
+    const content = card.querySelector('.card-content');
+    if (!content) return;
+
+    const title = content.querySelector('.card-title');
+    if (title) title.textContent = formatTopic(topic);
+
+    const keys = Object.keys(data || {});
+    const emptyEl = content.querySelector('.topic-empty');
+    if (emptyEl) emptyEl.style.display = keys.length === 0 ? '' : 'none';
+
+    const desiredRows = new Set();
+    keys.forEach((key) => {
+      const info = unwrapField((data || {})[key]);
+
+      // graph_xy_ring gets rendered inline in the owning topic card
+      if (info.raw && info.raw.type === 'graph_xy_ring') {
+        desiredRows.add(key);
+        const row = ensureRow(content, topic, key);
+        updateGraphRow(row, topic, key, info.raw);
+        return;
+      }
+
+      desiredRows.add(key);
+      const row = ensureRow(content, topic, key);
+      updateRow(row, topic, key, info);
+    });
+
+    // Remove stale rows
+    Array.from(content.querySelectorAll('.setting-row[data-row]')).forEach((row) => {
+      const key = row.dataset.row;
+      if (!desiredRows.has(key)) row.remove();
+    });
+  }
+
+  function updateGraphRow(row, topic, key, graphData) {
+    const currentKind = row.dataset.rowKind;
+    if (currentKind !== 'graph') {
+      row.innerHTML = '';
+      row.dataset.rowKind = 'graph';
+      row.style.flexDirection = 'column';
+      row.style.alignItems = 'stretch';
+    }
+
+    let labelEl = row.querySelector('label');
+    if (!labelEl) {
+      labelEl = document.createElement('label');
+      row.appendChild(labelEl);
+    }
+    labelEl.textContent = key;
+
+    let host = row.querySelector('.graph-host');
+    if (!host) {
+      host = document.createElement('div');
+      host.className = 'graph-host';
+      host.style.marginTop = '0.35rem';
+      host.style.position = 'relative';
+      host.style.height = '220px';
+      host.style.width = '100%';
+      row.appendChild(host);
+    }
+
+    renderGraph(topic, key, graphData, host);
+  }
+
   function renderTopics() {
     const container = byId('cardsContainer');
     if (!container) return;
-    container.innerHTML = '';
 
-    Object.keys(topicState)
-      .sort()
-      .forEach((topic) => {
-        const data = topicState[topic] || {};
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.dataset.topic = topic;
+    // Preserve the current focus so a re-order/rebuild doesn't break typing.
+    let active = null;
+    try {
+      const el = document.activeElement;
+      if (el && el.dataset && el.dataset.topic && el.dataset.field) {
+        active = {
+          topic: el.dataset.topic,
+          field: el.dataset.field,
+          selectionStart: typeof el.selectionStart === 'number' ? el.selectionStart : null,
+          selectionEnd: typeof el.selectionEnd === 'number' ? el.selectionEnd : null
+        };
+      }
+    } catch (_) {}
 
-        const content = document.createElement('div');
-        content.className = 'card-content';
-        const title = document.createElement('span');
-        title.className = 'card-title';
-        title.textContent = formatTopic(topic);
-        content.appendChild(title);
+    const topics = Object.keys(topicState).sort();
+    const keepTopics = new Set(topics);
 
-        const fields = Object.keys(data);
-        if (fields.length === 0) {
-          const p = document.createElement('p');
-          p.textContent = 'Keine Daten verfügbar';
-          content.appendChild(p);
-        } else {
-          fields.forEach((key) => {
-            const info = unwrapField(data[key]);
+    // Remove cards for topics that disappeared
+    Array.from(container.querySelectorAll('.card[data-topic]')).forEach((card) => {
+      const topic = card.dataset.topic;
+      if (!keepTopics.has(topic)) card.remove();
+    });
 
-            // graph_xy_ring gets rendered into graphsContainer
-            if (info.raw && info.raw.type === 'graph_xy_ring') {
-              renderGraph(topic, key, info.raw);
-              return;
-            }
+    topics.forEach((topic) => {
+      const selectorTopic = escapeAttrValue(topic);
+      let card = container.querySelector(`.card[data-topic="${selectorTopic}"]`);
+      if (!card) card = createCard(topic);
+      updateCard(topic, card, topicState[topic] || {});
+      container.appendChild(card); // move into correct order
+    });
 
-            const row = document.createElement('div');
-            row.className = 'setting-row';
-
-            const isButtonKey = String(key).toLowerCase().includes('button');
-
-            if (info.kind === 'button' || isButtonKey) {
-              const btn = document.createElement('a');
-              btn.className = 'btn waves-effect waves-light orange';
-              btn.style.margin = '0.5rem 0';
-              btn.textContent = '▶ ' + String(key).replace(/_/g, ' ');
-              btn.onclick = () => triggerButton(topic, key);
-              row.appendChild(btn);
-            } else if (info.kind === 'list') {
-              const label = document.createElement('label');
-              label.textContent = key;
-              row.appendChild(label);
-
-              const ul = document.createElement('ul');
-              ul.className = 'value-list';
-              (info.value || []).forEach((item) => {
-                const li = document.createElement('li');
-                li.textContent = item;
-                ul.appendChild(li);
-              });
-              row.appendChild(ul);
-            } else if (info.kind === 'bool') {
-              const label = document.createElement('label');
-              label.textContent = key;
-              row.appendChild(label);
-
-              const toggle = document.createElement('label');
-              const input = document.createElement('input');
-              input.type = 'checkbox';
-              input.checked = !!info.value;
-              input.dataset.field = key;
-              input.dataset.kind = 'bool';
-              const span = document.createElement('span');
-              toggle.appendChild(input);
-              toggle.appendChild(span);
-              row.appendChild(toggle);
-            } else {
-              const label = document.createElement('label');
-              label.textContent = key;
-              row.appendChild(label);
-
-              const input = document.createElement('input');
-              input.type = info.kind === 'number' ? 'number' : 'text';
-              input.value = info.value;
-              input.className = 'browser-default';
-              input.dataset.field = key;
-              input.dataset.kind = info.kind;
-              row.appendChild(input);
-            }
-
-            content.appendChild(row);
-          });
+    // Restore focus/caret if we had to rebuild any element.
+    if (active) {
+      const selectorTopic = escapeAttrValue(active.topic);
+      const selectorField = escapeAttrValue(active.field);
+      const el = container.querySelector(
+        `.card[data-topic="${selectorTopic}"] [data-field="${selectorField}"]`
+      );
+      if (el && document.activeElement !== el) {
+        try {
+          el.focus({ preventScroll: true });
+        } catch (_) {
+          try {
+            el.focus();
+          } catch (_) {}
         }
-
-        const actions = document.createElement('div');
-        actions.className = 'card-action';
-        const saveBtn = document.createElement('a');
-        saveBtn.className = 'btn blue';
-        saveBtn.textContent = 'Speichern';
-        saveBtn.onclick = () => submitTopicUpdate(topic, card);
-        actions.appendChild(saveBtn);
-
-        card.appendChild(content);
-        card.appendChild(actions);
-        container.appendChild(card);
-      });
+        if (active.selectionStart != null && typeof el.setSelectionRange === 'function') {
+          try {
+            el.setSelectionRange(active.selectionStart, active.selectionEnd ?? active.selectionStart);
+          } catch (_) {}
+        }
+      }
+    }
   }
 
   function submitTopicUpdate(topic, cardEl) {
@@ -164,6 +369,7 @@
     });
 
     sendUpdate(topic, payload);
+    clearDirtyForTopic(topic);
   }
 
   function sendUpdate(topic, data) {
@@ -172,7 +378,9 @@
       return;
     }
     const msg = { topic, data };
-    ws.send(JSON.stringify(msg));
+    const payload = JSON.stringify(msg);
+    logWsLine(payload, 'out');
+    ws.send(payload);
     toast(`Sende Update für ${topic}...`, 'blue');
   }
 
@@ -182,17 +390,52 @@
       return;
     }
     const msg = { action: 'button_trigger', topic, button };
-    ws.send(JSON.stringify(msg));
+    const payload = JSON.stringify(msg);
+    logWsLine(payload, 'out');
+    ws.send(payload);
     toast(`Button "${button}" ausgelöst...`, 'blue');
   }
 
-  function logWsLine(line) {
+  function normalizeWsPayload(line) {
+    if (typeof line !== 'string') return String(line);
+    const s = line.trim();
+    if (!s) return line;
+    if (s[0] !== '{' && s[0] !== '[') return line;
+    try {
+      return JSON.stringify(JSON.parse(line));
+    } catch (_) {
+      return line;
+    }
+  }
+
+  function logWsLine(line, dir) {
     if (!wsDebugEnabled) return;
     const debugLog = byId('wsDebugLog');
     if (!debugLog) return;
     const timestamp = new Date().toLocaleTimeString('de-DE');
-    debugLog.textContent += `[${timestamp}] ← ${line}\n`;
+    const arrow = dir === 'out' ? '→' : '←';
+    const msg = normalizeWsPayload(line);
+    debugLog.textContent += `[${timestamp}] ${arrow} ${msg}\n`;
     debugLog.scrollTop = debugLog.scrollHeight;
+  }
+
+  function handleWsMessageText(text) {
+    logWsLine(text, 'in');
+
+    try {
+      const msg = JSON.parse(text);
+
+      if (msg.topic === 'graph_point' && msg.data) {
+        handleGraphPoint(msg.data);
+        return;
+      }
+
+      if (!msg.topic) return;
+      topicState[msg.topic] = msg.data || {};
+      scheduleRender();
+    } catch (e) {
+      console.error('WS parse error', e);
+    }
   }
 
   function connectWs(wsPath) {
@@ -235,54 +478,53 @@
     };
 
     ws.onmessage = (ev) => {
-      logWsLine(ev.data);
+      const data = ev.data;
+      if (typeof data === 'string') {
+        handleWsMessageText(data);
+        return;
+      }
 
+      // Some browsers deliver WS messages as Blob/ArrayBuffer.
       try {
-        const msg = JSON.parse(ev.data);
-
-        if (msg.topic === 'graph_point' && msg.data) {
-          handleGraphPoint(msg.data);
+        if (data instanceof Blob && typeof data.text === 'function') {
+          data.text().then(handleWsMessageText).catch((e) => console.error('WS blob decode error', e));
           return;
         }
-
-        if (!msg.topic) return;
-        topicState[msg.topic] = msg.data || {};
-        renderTopics();
+        if (data instanceof ArrayBuffer && typeof TextDecoder !== 'undefined') {
+          handleWsMessageText(new TextDecoder().decode(data));
+          return;
+        }
       } catch (e) {
-        console.error('WS parse error', e);
+        console.error('WS decode error', e);
       }
+
+      // Fallback
+      logWsLine(String(data), 'in');
     };
   }
 
-  function ensureGraph(graphName, maxCount) {
+  function ensureGraph(graphName, maxCount, hostEl) {
     let graphContainer = byId(`graph-${graphName}`);
     if (!graphContainer) {
       graphContainer = document.createElement('div');
       graphContainer.id = `graph-${graphName}`;
-      graphContainer.className = 'card';
-      graphContainer.style.marginTop = '1rem';
 
-      const content = document.createElement('div');
-      content.className = 'card-content';
-
-      const title = document.createElement('span');
-      title.className = 'card-title';
-      title.textContent = `📊 ${formatTopic(graphName)}`;
-      content.appendChild(title);
-
-      const chartWrapper = document.createElement('div');
-      chartWrapper.style.position = 'relative';
-      chartWrapper.style.height = '200px';
-      chartWrapper.style.width = '100%';
+      // Inline-first container (fits into the owning card).
+      graphContainer.style.width = '100%';
+      graphContainer.style.height = '100%';
+      graphContainer.style.background = '#fff';
+      graphContainer.style.border = '1px solid rgba(15, 23, 42, 0.08)';
+      graphContainer.style.borderRadius = '12px';
+      graphContainer.style.padding = '0.5rem';
 
       const canvas = document.createElement('canvas');
       canvas.id = `chart-${graphName}`;
-      chartWrapper.appendChild(canvas);
-      content.appendChild(chartWrapper);
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      graphContainer.appendChild(canvas);
 
-      graphContainer.appendChild(content);
-      const host = byId('graphsContainer');
-      if (host) host.appendChild(graphContainer);
+      const fallbackHost = byId('graphsContainer');
+      (hostEl || fallbackHost || document.body).appendChild(graphContainer);
 
       if (!window.Chart) {
         console.warn('Chart.js not loaded; graph disabled');
@@ -294,13 +536,43 @@
       graphCharts[graphName] = {
         chart: new window.Chart(ctx, {
           type: 'line',
-          data: { labels: [], datasets: [] },
+          data: { datasets: [] },
           options: {
             responsive: true,
             maintainAspectRatio: false,
             animation: { duration: 200 },
             scales: {
-              x: { display: true, title: { display: true, text: 'Zeit' } },
+              x: {
+                type: 'linear',
+                display: true,
+                title: { display: true, text: 'Zeit' },
+                ticks: {
+                  callback: (value) => {
+                    const n = typeof value === 'number' ? value : parseFloat(String(value));
+                    if (!isFinite(n)) return String(value);
+
+                    // Heuristic:
+                    // - epoch-ms is ~1.7e12
+                    // - epoch-s is ~1.7e9
+                    // - uptime ms is usually < 1e9 for typical runtimes
+                    let ms = n;
+                    if (n >= 1e12) {
+                      ms = n;
+                      return new Date(ms).toLocaleTimeString('de-DE');
+                    }
+                    if (n >= 1e9) {
+                      ms = n * 1000;
+                      return new Date(ms).toLocaleTimeString('de-DE');
+                    }
+
+                    // uptime ms -> mm:ss
+                    const totalSeconds = Math.floor(ms / 1000);
+                    const minutes = Math.floor(totalSeconds / 60);
+                    const seconds = totalSeconds % 60;
+                    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+                  }
+                }
+              },
               y: { display: true, title: { display: true, text: 'Wert' }, beginAtZero: false }
             },
             plugins: { legend: { display: true, position: 'top' } }
@@ -311,15 +583,20 @@
       };
     }
 
+    // Keep chart DOM positioned where it belongs.
+    if (hostEl && graphContainer.parentElement !== hostEl) {
+      hostEl.appendChild(graphContainer);
+    }
+
     return graphCharts[graphName];
   }
 
-  function renderGraph(_topic, key, graphData) {
+  function renderGraph(_topic, key, graphData, hostEl) {
     const graphName = graphData.graph || 'unknown';
     const label = graphData.label || key;
     const maxCount = graphData.max_count || 60;
 
-    const graphInfo = ensureGraph(graphName, maxCount);
+    const graphInfo = ensureGraph(graphName, maxCount, hostEl);
     if (!graphInfo) return;
     if (graphData.max_count) graphInfo.maxCount = graphData.max_count;
 
@@ -342,21 +619,25 @@
       }
     }
 
-    // initial values
+    // Initial values from ring-buffer snapshots.
+    // Important: avoid resetting the chart on every topic refresh, otherwise
+    // live points (graph_point) appear briefly then disappear.
     if (graphData.values && Array.isArray(graphData.values) && graphInfo.chart) {
       const dataset = graphInfo.datasets[label];
-      dataset.data = [];
-      graphInfo.chart.data.labels = [];
+      const incomingCount = graphData.values.length;
+      const currentCount = Array.isArray(dataset.data) ? dataset.data.length : 0;
 
-      graphData.values.forEach((point, idx) => {
-        const timestamp = point.x != null ? String(point.x) : String(idx);
-        if (graphInfo.chart.data.labels.length < graphData.values.length) {
-          graphInfo.chart.data.labels.push(timestamp);
-        }
-        dataset.data.push(point.y);
-      });
+      // Only apply snapshot if we have no data yet or server has more history than us.
+      if (currentCount === 0 || incomingCount > currentCount) {
+        dataset.data = [];
 
-      graphInfo.chart.update();
+        graphData.values.forEach((point, idx) => {
+          const x = point.x != null ? Number(point.x) : idx;
+          dataset.data.push({ x, y: point.y });
+        });
+
+        graphInfo.chart.update();
+      }
     }
   }
 
@@ -368,19 +649,19 @@
     const graphInfo = graphCharts[graphName];
     if (!graphInfo || !graphInfo.chart) return;
 
-    const timestamp = data.x != null ? String(data.x) : String(Date.now());
-    const value = data.y;
+    const x = data.x != null ? Number(data.x) : Date.now();
+    const y = data.y;
 
     if (!graphInfo.datasets[label]) return;
 
-    graphInfo.chart.data.labels.push(timestamp);
-    graphInfo.datasets[label].data.push(value);
+    graphInfo.datasets[label].data.push({ x, y });
 
     const maxCount = graphInfo.maxCount || 60;
-    if (graphInfo.chart.data.labels.length > maxCount) {
-      graphInfo.chart.data.labels.shift();
+    const oneDs = graphInfo.datasets[label];
+    if (oneDs && Array.isArray(oneDs.data) && oneDs.data.length > maxCount) {
+      oneDs.data.shift();
       Object.values(graphInfo.datasets).forEach((ds) => {
-        if (ds.data.length > maxCount) ds.data.shift();
+        if (ds !== oneDs && ds.data.length > maxCount) ds.data.shift();
       });
     }
 
@@ -390,6 +671,9 @@
   function init(config) {
     const wsPath = (config && config.wsPath) || '/ws';
     wsDebugEnabled = !!((config && config.debug) || window.__ESPWEBUTILS_DEBUG_WS__);
+    if (wsDebugEnabled) {
+      logWsLine(`debug_enabled wsPath=${wsPath}`, 'in');
+    }
     connectWs(wsPath);
   }
 
