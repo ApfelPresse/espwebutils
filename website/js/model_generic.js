@@ -372,7 +372,7 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
       row.style.alignItems = 'stretch';
     }
 
-    // Check if this graph is shared (used in multiple fields)
+    // Check if this graph is shared (used in multiple fields/topics)
     let graphUsageCount = 0;
     Object.values(topicState).forEach(data => {
       Object.values(data).forEach(fieldValue => {
@@ -383,66 +383,7 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
     });
     const isShared = graphUsageCount > 1;
 
-    // For shared graphs, don't show label at all
-    if (!isShared) {
-      let labelEl = row.querySelector('label');
-      if (!labelEl) {
-        labelEl = document.createElement('label');
-        row.appendChild(labelEl);
-      }
-      labelEl.textContent = key;
-    } else {
-      // Remove label for shared graphs
-      const labelEl = row.querySelector('label');
-      if (labelEl) labelEl.remove();
-    }
-
-    if (wsDebugEnabled) {
-      console.log(`[updateGraphRow] topic=${topic}, key=${key}, graph=${graphData.graph}, isShared=${isShared}`);
-    }
-
-    // For shared graphs, track per card (topic) and only render once
-    if (isShared) {
-      const cardEl = row.parentElement; // The .card-content
-      const cardParent = cardEl ? cardEl.parentElement : null; // The .card
-      
-      // Check if this graph already exists in the DOM of this card
-      const graphId = `graph-${graphData.graph}`;
-      const existingGraphInCard = cardParent ? cardParent.querySelector(`#${graphId}`) : null;
-      
-      if (wsDebugEnabled) {
-        console.log(`[updateGraphRow] shared: graphId=${graphId}, existingInCard=${!!existingGraphInCard}`);
-      }
-      
-      if (!existingGraphInCard) {
-        // First occurrence in this card: render the graph
-        let host = row.querySelector('.graph-host');
-        if (!host) {
-          host = document.createElement('div');
-          host.className = 'graph-host';
-          host.style.marginTop = '0.35rem';
-          host.style.position = 'relative';
-          host.style.height = '220px';
-          host.style.width = '100%';
-          row.appendChild(host);
-        }
-        if (wsDebugEnabled) {
-          console.log(`[updateGraphRow] rendering graph to host`);
-        }
-        renderGraph(topic, key, graphData, host);
-      } else {
-        // Already rendered for this shared graph in this card
-        // Remove the row's host if it exists (we don't show duplicate graphs)
-        const existingHost = row.querySelector('.graph-host');
-        if (existingHost) existingHost.remove();
-        if (wsDebugEnabled) {
-          console.log(`[updateGraphRow] skipping (already rendered in this card)`);
-        }
-      }
-      return;
-    }
-
-    // For non-shared graphs, show a regular host container
+    // Always render the host for this row (it's one row per field)
     let host = row.querySelector('.graph-host');
     if (!host) {
       host = document.createElement('div');
@@ -452,6 +393,53 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
       host.style.height = '220px';
       host.style.width = '100%';
       row.appendChild(host);
+    }
+
+    // For shared graphs, we need to be careful about when to render
+    if (isShared) {
+      const graphId = `graph-${graphData.graph}`;
+      const existingGraph = byId(graphId);
+      
+      if (wsDebugEnabled) {
+        console.log(`[updateGraphRow] shared graph="${graphData.graph}", key=${key}, existing=${!!existingGraph}`);
+      }
+
+      if (!existingGraph) {
+        // First occurrence: render the graph in this row's host
+        if (wsDebugEnabled) {
+          console.log(`[updateGraphRow] rendering shared graph to this field's host`);
+        }
+        renderGraph(topic, key, graphData, host);
+        // Don't show label for shared graphs
+        const labelEl = row.querySelector('label');
+        if (labelEl) labelEl.remove();
+      } else {
+        // Graph already rendered elsewhere
+        // DON'T clear the host - keep it in case we need to show the graph later
+        // Just remove the label if present
+        const labelEl = row.querySelector('label');
+        if (labelEl) labelEl.remove();
+        
+        // Still call renderGraph() to ensure this series' initial data is added to the chart
+        renderGraph(topic, key, graphData, host);
+        
+        if (wsDebugEnabled) {
+          console.log(`[updateGraphRow] graph already rendered, added this series' data`);
+        }
+      }
+      return;
+    }
+
+    // Non-shared graph: always render and show label
+    let labelEl = row.querySelector('label');
+    if (!labelEl) {
+      labelEl = document.createElement('label');
+      row.appendChild(labelEl);
+    }
+    labelEl.textContent = key;
+
+    if (wsDebugEnabled) {
+      console.log(`[updateGraphRow] non-shared graph, topic=${topic}, key=${key}, graph=${graphData.graph}`);
     }
 
     renderGraph(topic, key, graphData, host);
@@ -850,9 +838,24 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
       } catch (_) {}
     }
 
-    attachedHere = !!hostEl && graphContainer.parentElement === hostEl;
+    // CRITICAL FIX: Only mark attachedHere if we're NOT already attached somewhere else
+    // If graph is already in the DOM and we're being asked to attach it to a different hostEl,
+    // DON'T move it. Leave it where it is and just reuse the existing chart.
+    if (graphContainer.parentElement && graphContainer.parentElement !== hostEl) {
+      // Graph is already attached somewhere - don't move it!
+      attachedHere = false;
+      if (wsDebugEnabled) {
+        console.log(`[ensureGraph] graph already attached to different parent, NOT moving it`, {
+          currentParent: graphContainer.parentElement?.id || graphContainer.parentElement?.className || 'unknown',
+          requestedParent: hostEl?.id || hostEl?.className || 'unknown'
+        });
+      }
+    } else {
+      attachedHere = !!hostEl && graphContainer.parentElement === hostEl;
+    }
+    
     if (wsDebugEnabled) {
-      console.log(`[ensureGraph] final state`, { graphName, chartExists: !!info.chart, datasetsCount: Object.keys(info.datasets).length, containerParentId: graphContainer.parentElement?.id });
+      console.log(`[ensureGraph] final state`, { graphName, chartExists: !!info.chart, datasetsCount: Object.keys(info.datasets).length, containerParentId: graphContainer.parentElement?.id, attachedHere });
     }
     return { graphInfo: info, attachedHere };
   }
@@ -874,9 +877,20 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
     
     const isShared = graphUsageCount > 1;
 
-    // Always render to the passed hostEl (the one in the card row)
-    const targetHost = hostEl;
-    
+    // For shared graphs, DON'T pass hostEl if the graph already exists elsewhere
+    // This prevents moving the graph between DOM nodes
+    let targetHost = hostEl;
+    if (isShared) {
+      const existingGraphEl = byId(`graph-${graphName}`);
+      if (existingGraphEl && existingGraphEl.parentElement !== hostEl) {
+        // Graph already exists in a different location - don't move it
+        targetHost = null;
+        if (wsDebugEnabled) {
+          console.log(`[renderGraph] shared graph already exists in different location, NOT moving it`);
+        }
+      }
+    }
+
     if (wsDebugEnabled) {
       console.log(`[renderGraph] graphName=${graphName}, label=${label}, hostEl=${hostEl?.id || '?'}, isShared=${isShared} (count=${graphUsageCount}), graphMode=${graphMode}, targetHost=${targetHost?.id || targetHost?.tagName || '?'}`);
     }
@@ -889,22 +903,7 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
     }
     if (graphData.max_count) graphInfo.maxCount = graphData.max_count;
 
-    // Inline mode only: avoid moving a single chart between multiple row hosts.
-    if (graphMode === 'inline') {
-      if (hostEl && !ensured.attachedHere) {
-        // Graph is shared and lives somewhere else, don't touch it
-        // Just show a visual hint that this field's data is in the shared graph
-        if (wsDebugEnabled) {
-          console.log(`[renderGraph] graph not attached here, showing hint instead`);
-        }
-        // This case is handled in updateGraphRow() by showing a hint
-        // Don't delete the host here - it might be attached to another field
-        return;
-      } else if (hostEl) {
-        hostEl.style.height = '220px';
-      }
-    }
-
+    // Create dataset for this series if it doesn't exist yet
     if (!graphInfo.datasets[label]) {
       const colors = ['#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0', '#00bcd4'];
       const colorIndex = Object.keys(graphInfo.datasets).length % colors.length;
@@ -922,18 +921,21 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
       if (graphInfo.chart) {
         // Keep Chart.js dataset list in sync with our label->dataset map.
         graphInfo.chart.data.datasets = Object.values(graphInfo.datasets);
+        if (wsDebugEnabled) {
+          console.log(`[renderGraph] created new dataset for label="${label}", now ${graphInfo.chart.data.datasets.length} datasets`);
+        }
       }
     }
 
-    // Initial values from ring-buffer snapshots.
-    // Important: avoid resetting the chart on every topic refresh, otherwise
-    // live points (graph_point) appear briefly then disappear.
+    // Apply initial values from ring-buffer snapshots.
+    // IMPORTANT: Do this ALWAYS, even if graph is shared and attached elsewhere
+    // because each series (label) can have its own initial data snapshot
     if (graphData.values && Array.isArray(graphData.values) && graphInfo.chart) {
       const dataset = graphInfo.datasets[label];
       const incomingCount = graphData.values.length;
       const currentCount = Array.isArray(dataset.data) ? dataset.data.length : 0;
 
-      // Only apply snapshot if we have no data yet or server has more history than us.
+      // Only apply snapshot if we have no data yet or server has more history than us
       if (currentCount === 0 || incomingCount > currentCount) {
         dataset.data = [];
 
@@ -942,9 +944,20 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
           dataset.data.push({ x, y: point.y });
         });
 
-        // Ensure all datasets are present (multi-series) before updating.
+        if (wsDebugEnabled) {
+          console.log(`[renderGraph] loaded ${incomingCount} initial values for label="${label}"`);
+        }
+
+        // Ensure all datasets are present (multi-series) before updating
         graphInfo.chart.data.datasets = Object.values(graphInfo.datasets);
         graphInfo.chart.update();
+      }
+    }
+
+    // Only set up the visual host if this graph is attached in THIS row
+    if (ensured.attachedHere) {
+      if (graphMode === 'inline' && hostEl) {
+        hostEl.style.height = '220px';
       }
     }
   }

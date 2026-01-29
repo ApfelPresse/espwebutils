@@ -810,6 +810,7 @@ private:
       String contentType = _getContentType(fileToSend->path);
       AsyncWebServerResponse *response = request->beginResponse(200, contentType, fileToSend->data, fileToSend->size);
       response->addHeader("Content-Encoding", "gzip");
+      response->addHeader("Cache-Control", "public, max-age=31536000");
       request->send(response);
     }
     else
@@ -839,6 +840,7 @@ private:
       const String contentType = _getContentType(match->path);
       AsyncWebServerResponse *response = request->beginResponse(200, contentType, match->data, match->size);
       response->addHeader("Content-Encoding", "gzip");
+      response->addHeader("Cache-Control", "public, max-age=31536000");
       request->send(response);
       return true;
     }

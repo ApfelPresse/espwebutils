@@ -47,10 +47,26 @@ def to_c_array(data: bytes) -> str:
 def sanitize_filename(path: Path) -> str:
     return str(path.as_posix()).replace("/", "_").replace(".", "_").replace("-", "_")
 
+def add_version_to_assets(content: str, version: str) -> str:
+    """Add version query parameter to CSS/JS/font URLs in HTML to enable cache busting."""
+    # Match href="/css/*.css" and add ?v=version if not already present
+    content = re.sub(
+        r'href=(["\'])(/(?:css|fonts)/[^"\']+\.(?:css|woff2|woff|ttf))\1',
+        lambda m: f'href={m.group(1)}{m.group(2)}?v={version}{m.group(1)}' if '?' not in m.group(2) else m.group(0),
+        content
+    )
+    # Match src="/js/*.js" and add ?v=version if not already present
+    content = re.sub(
+        r'src=(["\'])(/js/[^"\']+\.js)\1',
+        lambda m: f'src={m.group(1)}{m.group(2)}?v={version}{m.group(1)}' if '?' not in m.group(2) else m.group(0),
+        content
+    )
+    return content
+
 def list_files(in_dir: Path):
     return sorted([p for p in in_dir.rglob("*") if p.is_file()])
 
-def compute_tree_hash(in_dir: Path, algo: str, extra: bytes = b"") -> str:
+def compute_tree_hash(in_dir: Path, algo: str, lib_version: str = "", extra: bytes = b"") -> str:
     try:
         h = hashlib.new(algo)
     except ValueError:
@@ -63,7 +79,19 @@ def compute_tree_hash(in_dir: Path, algo: str, extra: bytes = b"") -> str:
         rel = f.relative_to(in_dir).as_posix().encode("utf-8")
         h.update(rel)
         h.update(b"\x00")
-        h.update(f.read_bytes())
+        
+        file_content = f.read_bytes()
+        
+        # For HTML files, apply version modifications before hashing
+        if f.suffix == '.html' and lib_version:
+            try:
+                html_str = file_content.decode('utf-8')
+                html_str = add_version_to_assets(html_str, lib_version)
+                file_content = html_str.encode('utf-8')
+            except Exception:
+                pass  # If conversion fails, use original content
+        
+        h.update(file_content)
         h.update(b"\x00")
 
     if extra:
@@ -99,7 +127,7 @@ def generate_build_info_header(out_file: Path, tree_hash: str, lib_version: str)
         # Keep the old macro name available for existing code.
         out.write(f'#define {HASH_DEFINE} {BUILD_HASH_DEFINE}\n')
 
-def generate_header(in_dir: Path, out_file: Path) -> int:
+def generate_header(in_dir: Path, out_file: Path, lib_version: str) -> int:
     files = list_files(in_dir)
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -119,6 +147,16 @@ def generate_header(in_dir: Path, out_file: Path) -> int:
             var_name = sanitize_filename(rel_path)
 
             original_data = file.read_bytes()
+            
+            # For HTML files, add version to asset URLs for cache busting
+            if rel_path.suffix == '.html':
+                try:
+                    html_str = original_data.decode('utf-8')
+                    html_str = add_version_to_assets(html_str, lib_version)
+                    original_data = html_str.encode('utf-8')
+                except Exception as e:
+                    print(f"[webfiles] WARNING: Could not process HTML file {rel_path}: {e}")
+            
             compressed_data = gzip.compress(original_data)
 
             out.write(f"// {rel_path.as_posix()} ({len(original_data)} bytes, gzipped to {len(compressed_data)} bytes)\n")
@@ -141,14 +179,14 @@ if not input_path.exists():
     print(f"[webfiles] WARN: input dir not found: {input_path} (skip)")
 else:
     lib_version = read_library_version(PROJECT_DIR)
-    current_hash = compute_tree_hash(input_path, hash_algo, extra=f"lib_version={lib_version}".encode("utf-8"))
+    current_hash = compute_tree_hash(input_path, hash_algo, lib_version=lib_version, extra=f"lib_version={lib_version}".encode("utf-8"))
     old_hash = read_existing_hash(build_info_path)
 
     if old_hash == current_hash:
         print(f"[webfiles] unchanged (hash={current_hash[:12]}...), skip: {output_path}")
     else:
         generate_build_info_header(build_info_path, current_hash, lib_version)
-        count = generate_header(input_path, output_path)
+        count = generate_header(input_path, output_path, lib_version)
         if old_hash:
             print(f"[webfiles] changed: {old_hash[:12]}... -> {current_hash[:12]}...")
         else:

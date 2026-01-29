@@ -67,6 +67,7 @@
         this._setTimer(() => {
           this._startTempStreaming();
           this._startGraphStreaming();
+          this._startControlStreaming();
         }, streamDelayMs);
       }, 0);
     }
@@ -210,18 +211,23 @@
         if (p.get('stream') === '0') return;
       } catch (_) {}
 
-      const periodMs = 5000;
-      const id = window.setInterval(() => {
-        if (this.readyState !== MockWebSocket.OPEN) return;
-        if (typeof this.onmessage !== 'function') return;
+      // Each temperature stream sends independently with its own staggered timing
+      // This mimics real sensor behavior where each sensor reports at different times
+      this._tempStreams.forEach((s, idx) => {
+        const baseIntervalMs = 5000;
+        // Stagger each sensor: sensor 0 at 5s, sensor 1 at 5.5s, sensor 2 at 6s, etc.
+        const staggerMs = idx * 500;
+        
+        const streamId = window.setInterval(() => {
+          if (this.readyState !== MockWebSocket.OPEN) return;
+          if (typeof this.onmessage !== 'function') return;
 
-        this._tempStreams.forEach((s, idx) => {
           const base = (typeof s.y === 'number' && isFinite(s.y)) ? s.y : (25.0 + (idx - 1) * 0.2);
 
           // Random walk around ~25°C
           const delta = (this._rand01() - 0.5) * 0.6; // ±0.3°C
           s.y = base + delta;
-          s.x = (typeof s.x === 'number' && isFinite(s.x)) ? (s.x + periodMs) : periodMs;
+          s.x = (typeof s.x === 'number' && isFinite(s.x)) ? (s.x + baseIntervalMs) : baseIntervalMs;
 
           const payload = JSON.stringify({
             topic: 'graph_point',
@@ -230,14 +236,72 @@
               label: s.label,
               x: s.x,
               y: s.y,
-              synced: false
+              synced: true
             }
           });
           this.onmessage({ data: payload });
+        }, baseIntervalMs);
+
+        // Start the first update with stagger delay
+        this._setTimer(() => {
+          if (this.readyState !== MockWebSocket.OPEN) return;
+          if (typeof this.onmessage !== 'function') return;
+
+          const base = (typeof s.y === 'number' && isFinite(s.y)) ? s.y : (25.0 + (idx - 1) * 0.2);
+          const delta = (this._rand01() - 0.5) * 0.6;
+          s.y = base + delta;
+          s.x = (typeof s.x === 'number' && isFinite(s.x)) ? (s.x + baseIntervalMs) : baseIntervalMs;
+
+          const payload = JSON.stringify({
+            topic: 'graph_point',
+            data: {
+              graph: 'temp',
+              label: s.label,
+              x: s.x,
+              y: s.y,
+              synced: true
+            }
+          });
+          this.onmessage({ data: payload });
+        }, staggerMs);
+
+        this._timers.push(streamId);
+      });
+    }
+
+    _startControlStreaming() {
+      // Periodically re-send control and status topics to mimic real ESP behavior
+      // Real ESP sends these topics every ~1-5 seconds
+      const controlTopics = ['control', 'cooling', 'heating', 'air_intake', 'ventilation'];
+      const periodMs = 2000; // Re-send every 2 seconds
+
+      const controlStreamId = window.setInterval(() => {
+        if (this.readyState !== MockWebSocket.OPEN) return;
+        if (typeof this.onmessage !== 'function') return;
+
+        // Resend control topics with potentially updated values
+        this._messages.forEach((payload) => {
+          try {
+            const msg = JSON.parse(payload);
+            if (!msg || !msg.topic) return;
+            
+            // Only re-send control/status topics
+            if (!controlTopics.includes(msg.topic)) return;
+            
+            // Occasionally update control values slightly
+            if (msg.topic === 'control' && msg.data && msg.data.current_temperature) {
+              const base = msg.data.current_temperature.value || 28;
+              const delta = (this._rand01() - 0.5) * 0.2; // ±0.1°C variation
+              msg.data.current_temperature.value = Math.max(25, Math.min(35, base + delta));
+            }
+            
+            const updatedPayload = JSON.stringify(msg);
+            this.onmessage({ data: updatedPayload });
+          } catch (_) {}
         });
       }, periodMs);
 
-      this._timers.push(id);
+      this._timers.push(controlStreamId);
     }
 
     _setTimer(fn, delayMs) {
