@@ -892,8 +892,7 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
     // Inline mode only: avoid moving a single chart between multiple row hosts.
     if (graphMode === 'inline') {
       if (hostEl && !ensured.attachedHere) {
-↪ Serie "Ds18b20_temp" auf Graph "temp" (wird oben angezeigt)
-↪ Serie "Sht3x_temp" auf Graph "temp" (wird oben angezeigt)        // Graph is shared and lives somewhere else, don't touch it
+        // Graph is shared and lives somewhere else, don't touch it
         // Just show a visual hint that this field's data is in the shared graph
         if (wsDebugEnabled) {
           console.log(`[renderGraph] graph not attached here, showing hint instead`);
