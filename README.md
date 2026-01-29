@@ -56,3 +56,30 @@ upload_flags =
   -a <OTA_PASSWORD>
   --timeout=10
 ```
+
+---
+
+## Configuration
+
+### WebSocket JSON Buffer Size
+
+By default, the library uses **2048 bytes** for WebSocket JSON buffers (sufficient for graphs with 16+ points).
+
+If you need to send larger JSON documents (e.g., with more graph points or bigger payloads), define `MODEL_JSON_CAPACITY` before including the ModelBase header:
+
+```cpp
+// In your main.cpp, BEFORE #include "Model.h" or similar:
+#define MODEL_JSON_CAPACITY 4096  // or 8192 for very large payloads
+
+#include "Model.h"  // or your derived model header
+```
+
+Or in `platformio.ini`:
+
+```ini
+[env:esp32]
+build_flags =
+  -D MODEL_JSON_CAPACITY=4096
+```
+
+**Note:** Larger buffer sizes consume more heap memory, so choose the smallest size that works for your use case.

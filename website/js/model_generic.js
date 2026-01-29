@@ -51,6 +51,7 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
 
   const dirtyFields = new Set(); // Set of "topic\u0000field"
   let renderScheduled = false;
+  const fieldElements = {}; // { "topic\u0000field": element } - cache for stable DOM updates
 
   const graphCharts = {}; // { graph_name: { chart, datasets: { label: dataset }, maxCount } }
   const sharedGraphs = new Set(); // Set of graph names used in multiple fields
@@ -186,13 +187,26 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
 
   function ensureRow(cardContentEl, topic, key) {
     const selectorKey = escapeAttrValue(key);
-    let row = cardContentEl.querySelector(`[data-row="${selectorKey}"]`);
+    const fieldId = dirtyKey(topic, key); // "topic\u0000field" - unique ID
+    
+    // First try to find by ID (preferred, stable)
+    let row = byId(`field-${fieldId.replace(/\u0000/g, '__')}`);
+    
+    // Fallback to data-row selector for backwards compat
+    if (!row) {
+      row = cardContentEl.querySelector(`[data-row="${selectorKey}"]`);
+    }
+    
     if (!row) {
       row = document.createElement('div');
       row.className = 'setting-row';
       row.dataset.row = key;
+      // Set unique ID based on topic + field for stable updates
+      row.id = `field-${fieldId.replace(/\u0000/g, '__')}`;
       cardContentEl.appendChild(row);
     }
+    
+    fieldElements[fieldId] = row; // Cache for later reference
     return row;
   }
 
@@ -268,8 +282,12 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
         row.appendChild(toggle);
       }
 
+      // Only update if not currently being edited AND value actually changed
       if (!isDirty(topic, key)) {
-        input.checked = !!info.value;
+        const newValue = !!info.value;
+        if (input.checked !== newValue) {
+          input.checked = newValue;
+        }
       }
       return;
     }
@@ -297,9 +315,13 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
     if (input.type !== newType) input.type = newType;
 
     // Never overwrite while the user is editing that field.
+    // ONLY update if value actually changed to avoid spurious DOM mutations
     if (!isDirty(topic, key)) {
-      const serverValue = info.value;
-      if (input.value !== serverValue) input.value = serverValue;
+      const serverValue = String(info.value);
+      const currentValue = input.value;
+      if (currentValue !== serverValue) {
+        input.value = serverValue;
+      }
     }
   }
 
@@ -314,7 +336,10 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
     const emptyEl = content.querySelector('.topic-empty');
     if (emptyEl) emptyEl.style.display = keys.length === 0 ? '' : 'none';
 
+    // Track which rows should exist
     const desiredRows = new Set();
+    
+    // Only update rows that have changed or are new
     keys.forEach((key) => {
       const info = unwrapField((data || {})[key]);
 
@@ -331,7 +356,7 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
       updateRow(row, topic, key, info);
     });
 
-    // Remove stale rows
+    // Remove stale rows (fields that no longer exist in data)
     Array.from(content.querySelectorAll('.setting-row[data-row]')).forEach((row) => {
       const key = row.dataset.row;
       if (!desiredRows.has(key)) row.remove();
@@ -406,11 +431,12 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
         }
         renderGraph(topic, key, graphData, host);
       } else {
-        // Already rendered for this shared graph in this card, don't render
+        // Already rendered for this shared graph in this card
+        // Remove the row's host if it exists (we don't show duplicate graphs)
         const existingHost = row.querySelector('.graph-host');
         if (existingHost) existingHost.remove();
         if (wsDebugEnabled) {
-          console.log(`[updateGraphRow] skipping (already in DOM)`);
+          console.log(`[updateGraphRow] skipping (already rendered in this card)`);
         }
       }
       return;
@@ -461,12 +487,27 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
       if (!keepTopics.has(topic)) card.remove();
     });
 
+    // Create/update cards in sorted order, but reuse existing DOM elements
     topics.forEach((topic) => {
       const selectorTopic = escapeAttrValue(topic);
       let card = container.querySelector(`.card[data-topic="${selectorTopic}"]`);
-      if (!card) card = createCard(topic);
+      
+      if (!card) {
+        // Card doesn't exist, create new one
+        card = createCard(topic);
+        container.appendChild(card);
+      } else {
+        // Card exists, but may need to be moved to correct position
+        // Only move if necessary (avoid unnecessary DOM operations)
+        const lastCard = container.lastElementChild;
+        if (card !== lastCard && lastCard && lastCard !== card.previousElementSibling) {
+          // Move to end to maintain sort order
+          container.appendChild(card);
+        }
+      }
+      
+      // Update card content (only updates fields, doesn't rebuild entire card)
       updateCard(topic, card, topicState[topic] || {});
-      container.appendChild(card); // move into correct order
     });
 
     // Restore focus/caret if we had to rebuild any element.
@@ -851,17 +892,15 @@ if (typeof window.copyConsoleLogsToClipboard === 'undefined') {
     // Inline mode only: avoid moving a single chart between multiple row hosts.
     if (graphMode === 'inline') {
       if (hostEl && !ensured.attachedHere) {
-        hostEl.innerHTML = '';
-        hostEl.style.height = 'auto';
-        const hint = document.createElement('div');
-        hint.className = 'graph-shared-hint';
-        hint.style.padding = '0.35rem 0.5rem';
-        hint.style.background = 'rgba(15, 23, 42, 0.04)';
-        hint.style.border = '1px dashed rgba(15, 23, 42, 0.15)';
-        hint.style.borderRadius = '8px';
-        hint.style.fontSize = '0.9rem';
-        hint.textContent = `↪ nutzt Graph "${graphName}" (Serie: ${label})`;
-        hostEl.appendChild(hint);
+↪ Serie "Ds18b20_temp" auf Graph "temp" (wird oben angezeigt)
+↪ Serie "Sht3x_temp" auf Graph "temp" (wird oben angezeigt)        // Graph is shared and lives somewhere else, don't touch it
+        // Just show a visual hint that this field's data is in the shared graph
+        if (wsDebugEnabled) {
+          console.log(`[renderGraph] graph not attached here, showing hint instead`);
+        }
+        // This case is handled in updateGraphRow() by showing a hint
+        // Don't delete the host here - it might be attached to another field
+        return;
       } else if (hostEl) {
         hostEl.style.height = '220px';
       }

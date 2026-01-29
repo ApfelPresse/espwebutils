@@ -1,8 +1,6 @@
 {
   "name": "espwebutils",
-  "version": "0.6.0",
-  "description": "ESP32 WiFi provisioning + OTA + graphs + web ui helpers",
-  "frameworks": ["arduino"],
+  "version": "0.6.1",
   "platforms": ["espressif32"],
   "dependencies": [
     { "name": "ESP32Async/AsyncTCP", "version": "3.4.9" },

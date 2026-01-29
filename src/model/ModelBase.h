@@ -11,9 +11,16 @@
 #include "model/ModelSerializer.h"
 #include "model/types/ModelTypeTraits.h"
 
+// Define MODEL_JSON_CAPACITY before including this header to customize the WebSocket JSON buffer size.
+// Default: 2048 bytes (sufficient for graph data with 16+ points)
+// Example: #define MODEL_JSON_CAPACITY 4096
+#ifndef MODEL_JSON_CAPACITY
+#define MODEL_JSON_CAPACITY 2048
+#endif
+
 class ModelBase {
 public:
-  static const size_t JSON_CAPACITY = 2048;  // Large enough for graph data with 16+ points
+  static const size_t JSON_CAPACITY = MODEL_JSON_CAPACITY;  // Large enough for graph data with 16+ points (configurable via MODEL_JSON_CAPACITY)
 
   ModelBase(uint16_t port, const char* wsPath);
 
